@@ -1,0 +1,16 @@
+{
+ "n_docs": 600013,
+ "avgdl": 116.28820037841797,
+ "k1": 1.2,
+ "b": 0.75,
+ "title_weight": 2.0,
+ "info": {
+  "papers": 600013,
+  "words_seen": 689478,
+  "dim": 160,
+  "columns": 30000,
+  "vocabulary": 240705,
+  "explained_variance": 0.131,
+  "source": "pool file pool2.jsonl"
+ }
+}

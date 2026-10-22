@@ -1,0 +1,2154 @@
+{
+ "trained_at": "2026-10-18T21:13:51",
+ "source": "pool",
+ "field_classifier": {
+  "test_papers": 40000,
+  "accuracy": 0.7637,
+  "macro_f1": 0.7208,
+  "majority_baseline_accuracy": 0.3017,
+  "test_papers_per_field": {
+   "Machine Learning": 1545,
+   "Computer Vision": 2598,
+   "Language & Information Retrieval": 994,
+   "Robotics & Control": 1982,
+   "Security & Cryptography": 1037,
+   "Theory & Algorithms": 791,
+   "Systems & Software": 6845,
+   "Networks & Data Mining": 1440,
+   "Quantum Physics": 1069,
+   "Physics & Astronomy": 12067,
+   "Mathematics & Statistics": 2868,
+   "Biology & Medicine": 3988,
+   "Economics & Finance": 2776
+  }
+ },
+ "lexicon": {
+  "papers": 600013,
+  "words_seen": 689478,
+  "dim": 160,
+  "columns": 30000,
+  "vocabulary": 240705,
+  "explained_variance": 0.131,
+  "source": "pool file pool2.jsonl"
+ },
+ "data": {
+  "train": {
+   "queries": 3177,
+   "with_a_relevant_candidate": 3177,
+   "candidates_per_query": 184.3,
+   "relevant_found_by_candidates": 0.4914
+  },
+  "validation": {
+   "queries": 460,
+   "with_a_relevant_candidate": 460,
+   "candidates_per_query": 184.9,
+   "relevant_found_by_candidates": 0.4928
+  },
+  "test": {
+   "queries": 1199,
+   "with_a_relevant_candidate": 902,
+   "candidates_per_query": 185.4,
+   "relevant_found_by_candidates": 0.3721
+  }
+ },
+ "gbdt": {
+  "kind": "gbdt",
+  "trees": 153,
+  "importance": {
+   "bm25": 0.2447,
+   "semantic": 0.1304,
+   "title_coverage": 0.0809,
+   "term_coverage": 0.0566,
+   "domain_match": 0.1236,
+   "citations": 0.2754,
+   "recency": 0.071,
+   "peer_reviewed": 0.0,
+   "venue_quality": 0.0174
+  },
+  "trained": "2026-10-18T21:13:51",
+  "queries": 3177,
+  "threshold": 0.3957,
+  "platt": [
+   0.6675161040695592,
+   -3.8678979407184455
+  ],
+  "lambdamart": {
+   "trees": 153,
+   "rounds_run": 213,
+   "best_validation_ndcg10": 0.4706,
+   "history": [
+    0.37307,
+    0.3836,
+    0.37882,
+    0.36791,
+    0.36203,
+    0.36271,
+    0.36526,
+    0.36409,
+    0.36729,
+    0.36708,
+    0.36812,
+    0.37,
+    0.37159,
+    0.37589,
+    0.37609,
+    0.37753,
+    0.38236,
+    0.38246,
+    0.38334,
+    0.38783,
+    0.39257,
+    0.39731,
+    0.40101,
+    0.4059,
+    0.40795,
+    0.41474,
+    0.41833,
+    0.41864,
+    0.42146,
+    0.42155,
+    0.42237,
+    0.42536,
+    0.4261,
+    0.429,
+    0.42799,
+    0.43198,
+    0.43506,
+    0.43762,
+    0.43926,
+    0.44147,
+    0.44427,
+    0.44577,
+    0.44814,
+    0.44799,
+    0.44883,
+    0.44999,
+    0.45071,
+    0.45254,
+    0.45302,
+    0.45303,
+    0.45215,
+    0.45192,
+    0.45145,
+    0.45444,
+    0.45551,
+    0.45464,
+    0.45624,
+    0.45396,
+    0.45701,
+    0.4555,
+    0.45716,
+    0.46025,
+    0.45435,
+    0.45462,
+    0.45388,
+    0.45407,
+    0.45328,
+    0.45487,
+    0.45509,
+    0.45423,
+    0.45598,
+    0.45669,
+    0.4554,
+    0.45729,
+    0.45761,
+    0.45636,
+    0.45583,
+    0.45427,
+    0.45488,
+    0.45561,
+    0.45693,
+    0.46037,
+    0.46099,
+    0.46244,
+    0.46313,
+    0.46139,
+    0.46317,
+    0.46543,
+    0.4651,
+    0.46563,
+    0.46322,
+    0.46331,
+    0.46395,
+    0.46234,
+    0.46335,
+    0.46485,
+    0.46411,
+    0.46294,
+    0.46264,
+    0.46232,
+    0.46282,
+    0.46284,
+    0.46471,
+    0.46431,
+    0.4646,
+    0.46465,
+    0.46381,
+    0.46325,
+    0.46166,
+    0.46155,
+    0.46166,
+    0.45995,
+    0.46026,
+    0.46084,
+    0.46254,
+    0.46246,
+    0.46272,
+    0.4638,
+    0.46386,
+    0.4653,
+    0.46377,
+    0.46432,
+    0.46533,
+    0.4644,
+    0.4625,
+    0.46199,
+    0.46422,
+    0.46614,
+    0.46393,
+    0.46602,
+    0.46535,
+    0.46633,
+    0.46693,
+    0.46798,
+    0.46842,
+    0.46952,
+    0.46924,
+    0.46876,
+    0.46864,
+    0.46585,
+    0.46734,
+    0.46678,
+    0.46728,
+    0.46583,
+    0.4689,
+    0.46673,
+    0.46584,
+    0.46626,
+    0.46669,
+    0.46554,
+    0.4684,
+    0.46911,
+    0.47055,
+    0.46945,
+    0.46884,
+    0.4694,
+    0.46691,
+    0.46722,
+    0.46854,
+    0.46787,
+    0.46869,
+    0.46733,
+    0.4676,
+    0.46776,
+    0.46786,
+    0.46641,
+    0.46591,
+    0.46557,
+    0.46528,
+    0.46471,
+    0.46509,
+    0.46492,
+    0.46402,
+    0.46419,
+    0.46381,
+    0.4644,
+    0.46427,
+    0.46263,
+    0.46336,
+    0.46191,
+    0.46264,
+    0.46243,
+    0.46419,
+    0.4636,
+    0.46363,
+    0.46449,
+    0.46428,
+    0.46518,
+    0.46533,
+    0.46605,
+    0.46728,
+    0.46768,
+    0.46733,
+    0.46774,
+    0.46945,
+    0.46777,
+    0.46734,
+    0.46726,
+    0.46883,
+    0.4698,
+    0.46725,
+    0.4676,
+    0.46602,
+    0.46624,
+    0.46656,
+    0.46752,
+    0.46695,
+    0.4663,
+    0.46576,
+    0.46476,
+    0.46425,
+    0.46515,
+    0.46652
+   ],
+   "learning_rate": 0.08,
+   "max_leaf_nodes": 31,
+   "min_samples_leaf": 100,
+   "subsample": 0.6
+  }
+ },
+ "linear": {
+  "kind": "linear",
+  "weights": {
+   "bm25": 1.8650000095367432,
+   "semantic": -0.028999999165534973,
+   "title_coverage": 0.13500000536441803,
+   "term_coverage": -0.1509999930858612,
+   "domain_match": 0.5680000185966492,
+   "citations": 1.3739999532699585,
+   "recency": 0.11699999868869781,
+   "peer_reviewed": 0.2409999966621399,
+   "venue_quality": 0.1509999930858612
+  },
+  "threshold": 0.8552
+ },
+ "test": {
+  "bm25": {
+   "NDCG@10": 0.1394,
+   "MRR": 0.2438,
+   "P@10": 0.0575,
+   "R@50": 0.288,
+   "in-field@10": 0.7979
+  },
+  "semantic": {
+   "NDCG@10": 0.0247,
+   "MRR": 0.0495,
+   "P@10": 0.0114,
+   "R@50": 0.074,
+   "in-field@10": 0.6151
+  },
+  "hybrid": {
+   "NDCG@10": 0.1446,
+   "MRR": 0.2579,
+   "P@10": 0.0582,
+   "R@50": 0.2775,
+   "in-field@10": 0.796
+  },
+  "linear": {
+   "NDCG@10": 0.2278,
+   "MRR": 0.377,
+   "P@10": 0.0927,
+   "R@50": 0.3693,
+   "in-field@10": 0.7974
+  },
+  "gbdt": {
+   "NDCG@10": 0.2401,
+   "MRR": 0.394,
+   "P@10": 0.0963,
+   "R@50": 0.3687,
+   "in-field@10": 0.798
+  }
+ },
+ "test_queries": [
+  {
+   "qid": "https://openalex.org/W4406497096",
+   "text": "Emergent interaction-induced topology in Bose-Hubbard ladders",
+   "year": 2025,
+   "field": "Physics & Astronomy",
+   "candidates": 193,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2890303012",
+   "text": "Model for scattering with proliferating resonances: Many coupled square wells",
+   "year": 2018,
+   "field": "Quantum Physics",
+   "candidates": 187,
+   "relevant_found": 0,
+   "relevant_total": 7
+  },
+  {
+   "qid": "https://openalex.org/W3128024603",
+   "text": "High-Quality All-Inorganic Perovskite CsPbBr3 Microsheet Crystals as Low-Loss Subwavelength Exciton\u2013Polariton Waveguides",
+   "year": 2021,
+   "field": "Systems & Software",
+   "candidates": 193,
+   "relevant_found": 3,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W2106682611",
+   "text": "The Local Volume HI Survey: galaxy kinematics",
+   "year": 2012,
+   "field": "Physics & Astronomy",
+   "candidates": 179,
+   "relevant_found": 0,
+   "relevant_total": 6
+  },
+  {
+   "qid": "https://openalex.org/W2952048439",
+   "text": "Inactivation of thermogenic UCP1 as a historical contingency in multiple placental mammal clades",
+   "year": 2017,
+   "field": "Physics & Astronomy",
+   "candidates": 199,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W7152916906",
+   "text": "Entanglement in elastic and inelastic two-particle scatterings at high energy",
+   "year": 2026,
+   "field": "Physics & Astronomy",
+   "candidates": 189,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4402702930",
+   "text": "Language-driven Grasp Detection",
+   "year": 2024,
+   "field": "Robotics & Control",
+   "candidates": 198,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2032023317",
+   "text": "Combating the Threat of Anthrax: A Quantitative Structure\u2212Activity Relationship Approach",
+   "year": 2008,
+   "field": "Theory & Algorithms",
+   "candidates": 179,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2891129024",
+   "text": "The Ichnological and Sedimentological Signature of a Late Paleozoic, Postglacial Marginal-Marine and Shallow-Marine, Tidally Influenced Setting: The Wudayhi Member of the Nuayyim Formation (Unayzah Group) in the Subsurface of Central and Eastern Saudi Arabia",
+   "year": 2018,
+   "field": "Physics & Astronomy",
+   "candidates": 184,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W3022667306",
+   "text": "Synergistic effects of turbulence induced viscosity and plasma flow on resistive wall mode instability",
+   "year": 2020,
+   "field": "Physics & Astronomy",
+   "candidates": 169,
+   "relevant_found": 3,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2990558810",
+   "text": "Design Methodology of a ZVS Class-E Inverter with Fixed Gain",
+   "year": 2019,
+   "field": "Systems & Software",
+   "candidates": 193,
+   "relevant_found": 3,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W2014909816",
+   "text": "The Star Formation in the L1615/L1616 Cometary Cloud",
+   "year": 2008,
+   "field": "Physics & Astronomy",
+   "candidates": 151,
+   "relevant_found": 0,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4281729436",
+   "text": "Leptons lurking in semi-visible jets at the LHC",
+   "year": 2022,
+   "field": "Physics & Astronomy",
+   "candidates": 184,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2798720223",
+   "text": "Interpretations of galactic center gamma-ray excess confronting the PandaX-II constraints on dark matter-neutron spin-dependent scatterings in the NMSSM",
+   "year": 2018,
+   "field": "Physics & Astronomy",
+   "candidates": 158,
+   "relevant_found": 4,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W2179880778",
+   "text": "Comparing Multiple Imputation and Propensity-Score Weighting in Unit-Nonresponse Adjustments",
+   "year": 2015,
+   "field": "Mathematics & Statistics",
+   "candidates": 188,
+   "relevant_found": 3,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W7161603620",
+   "text": "Autonomous Microrobots for Spatiotemporally Active Therapeutic Delivery and Controlled Release",
+   "year": 2026,
+   "field": "Robotics & Control",
+   "candidates": 180,
+   "relevant_found": 2,
+   "relevant_total": 7
+  },
+  {
+   "qid": "https://openalex.org/W4200382597",
+   "text": "Determination of Novel Anti-Cancer Agents by Targeting OGG1 Enzyme Using Integrated Bioinformatics Methods",
+   "year": 2021,
+   "field": "Theory & Algorithms",
+   "candidates": 179,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4384197637",
+   "text": "Optical Control of Slow Topological Electrons in Moir\u00e9 Systems",
+   "year": 2023,
+   "field": "Physics & Astronomy",
+   "candidates": 195,
+   "relevant_found": 0,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W7172208310",
+   "text": "Agent-driven anomaly detection in smart energy management systems: Taxonomy, evidence, and a deployment roadmap",
+   "year": 2026,
+   "field": "Security & Cryptography",
+   "candidates": 186,
+   "relevant_found": 0,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4310283148",
+   "text": "BatmanNet: bi-branch masked graph transformer autoencoder for molecular representation",
+   "year": 2023,
+   "field": "Theory & Algorithms",
+   "candidates": 199,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W7167805651",
+   "text": "3D dynamics of a premagnetized gas-puff Z-pinch implosion",
+   "year": 2026,
+   "field": "Robotics & Control",
+   "candidates": 199,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2942249385",
+   "text": "Estimating redshift distributions using hierarchical logistic Gaussian processes",
+   "year": 2019,
+   "field": "Physics & Astronomy",
+   "candidates": 196,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W1968448284",
+   "text": "Intershell resistance in multiwall carbon nanotubes: A Coulomb drag study",
+   "year": 2005,
+   "field": "Physics & Astronomy",
+   "candidates": 138,
+   "relevant_found": 3,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2137799765",
+   "text": "Supersymmetric Higgs bosons beyond the MSSM: An update with flavor and dark matter constraints",
+   "year": 2012,
+   "field": "Physics & Astronomy",
+   "candidates": 167,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4396545204",
+   "text": "Anomalously reduced homogeneous broadening of two-dimensional electronic spectroscopy at high temperature by detailed balance",
+   "year": 2024,
+   "field": "Quantum Physics",
+   "candidates": 195,
+   "relevant_found": 0,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W2609191735",
+   "text": "What Sets the Massive Star Formation Rates and Efficiencies of Giant Molecular Clouds?",
+   "year": 2017,
+   "field": "Physics & Astronomy",
+   "candidates": 154,
+   "relevant_found": 2,
+   "relevant_total": 6
+  },
+  {
+   "qid": "https://openalex.org/W4415830490",
+   "text": "Anomalous spectrum in a non-Hermitian quasiperiodic chain",
+   "year": 2025,
+   "field": "Quantum Physics",
+   "candidates": 193,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W2088825400",
+   "text": "Criterion for the nature of the superconducting transition in strongly interacting field theories: A holographic approach",
+   "year": 2011,
+   "field": "Physics & Astronomy",
+   "candidates": 195,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2484774270",
+   "text": "Refractory period of an excitable semiconductor laser with optical injection",
+   "year": 2017,
+   "field": "Systems & Software",
+   "candidates": 179,
+   "relevant_found": 3,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2788060579",
+   "text": "Direct Hashing Without Pseudo-Labels",
+   "year": 2018,
+   "field": "Computer Vision",
+   "candidates": 196,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4404159497",
+   "text": "Classifying modified gravity and dark energy theories with Bayesian neural networks: massive neutrinos, baryonic feedback, and the theoretical error",
+   "year": 2024,
+   "field": "Physics & Astronomy",
+   "candidates": 181,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4403813345",
+   "text": "Energy conversion and transport in molecular-scale junctions",
+   "year": 2024,
+   "field": "Systems & Software",
+   "candidates": 195,
+   "relevant_found": 4,
+   "relevant_total": 13
+  },
+  {
+   "qid": "https://openalex.org/W7124437782",
+   "text": "A novel unsupervised learning for subatomic particle identification of J/\u03c8 and upsilon",
+   "year": 2026,
+   "field": "Physics & Astronomy",
+   "candidates": 196,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4415377276",
+   "text": "Light axion-like particles at future lepton colliders",
+   "year": 2025,
+   "field": "Physics & Astronomy",
+   "candidates": 192,
+   "relevant_found": 3,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4387955519",
+   "text": "Mediated interactions between Fermi polarons and the role of impurity quantum statistics",
+   "year": 2023,
+   "field": "Physics & Astronomy",
+   "candidates": 193,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2788873643",
+   "text": "Coronal Proerties of the Seyfert 1 Galaxy 3C 120 with NuSTAR",
+   "year": 2018,
+   "field": "Physics & Astronomy",
+   "candidates": 198,
+   "relevant_found": 3,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4416789138",
+   "text": "Implicit B\u00e9zier Motion Model for Precise Spatial and Temporal Control",
+   "year": 2025,
+   "field": "Robotics & Control",
+   "candidates": 196,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W7116854818",
+   "text": "Mid\u2010Infrared Quantum Scanning Microscopy via Visible Light Beyond Spatial Correlations",
+   "year": 2025,
+   "field": "Quantum Physics",
+   "candidates": 191,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2974196829",
+   "text": "Does magnetic field impact tidal dynamics inside the convective zone of low-mass stars along their evolution?",
+   "year": 2019,
+   "field": "Physics & Astronomy",
+   "candidates": 176,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4393284789",
+   "text": "Hole transport layer engineering in high performance quasi-2D perovskite blue light emitting diodes",
+   "year": 2024,
+   "field": "Systems & Software",
+   "candidates": 160,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2107106287",
+   "text": "Newtonian self-gravitating system in a relativistic huge void universe model",
+   "year": 2016,
+   "field": "Physics & Astronomy",
+   "candidates": 200,
+   "relevant_found": 3,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W4411650754",
+   "text": "An Improved YOLOP Lane-Line Detection Utilizing Feature Shift Aggregation for Intelligent Agricultural Machinery",
+   "year": 2025,
+   "field": "Computer Vision",
+   "candidates": 190,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W7166676040",
+   "text": "A Hybrid Feature-Enhanced IndoBERT Framework with Controlled Semi-Supervised Learning for Low-Resource Indonesian Hate Speech Detection",
+   "year": 2026,
+   "field": "Language & Information Retrieval",
+   "candidates": 182,
+   "relevant_found": 2,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4386272472",
+   "text": "Atomic Positional Embedding-Based Transformer Model for Predicting the Density of States of Crystalline Materials",
+   "year": 2023,
+   "field": "Physics & Astronomy",
+   "candidates": 194,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4401333936",
+   "text": "Facile Fabrication of Highly Crystallized, Air\u2010Stable, and Flexible Perovskite Micromesh Film Photodetector",
+   "year": 2024,
+   "field": "Systems & Software",
+   "candidates": 197,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4386945378",
+   "text": "Berry Curvature Dipole Induced Giant Mid\u2010Infrared Second\u2010Harmonic Generation in 2D Weyl Semiconductor",
+   "year": 2023,
+   "field": "Physics & Astronomy",
+   "candidates": 178,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W2762794668",
+   "text": "Why Is Pollution from US Manufacturing Declining? The Roles of Environmental Regulation, Productivity, and Trade",
+   "year": 2018,
+   "field": "Economics & Finance",
+   "candidates": 172,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W1976492857",
+   "text": "SUBARU AND GEMINI HIGH SPATIAL RESOLUTION INFRARED 18 \u03bcm IMAGING OBSERVATIONS OF NEARBY LUMINOUS INFRARED GALAXIES",
+   "year": 2011,
+   "field": "Physics & Astronomy",
+   "candidates": 166,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W2892294592",
+   "text": "Leveraging Contact Forces for Learning to Grasp",
+   "year": 2019,
+   "field": "Robotics & Control",
+   "candidates": 199,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4386442563",
+   "text": "Evolution of Chemistry in the envelope of HOt corinoS (ECHOS)",
+   "year": 2023,
+   "field": "Physics & Astronomy",
+   "candidates": 197,
+   "relevant_found": 1,
+   "relevant_total": 9
+  },
+  {
+   "qid": "https://openalex.org/W2777997231",
+   "text": "Mode Transition in an Inductively Coupled Argon\u2013Mercury Mixture Discharge Studied by Interferometer and Optical Emission Spectroscopy",
+   "year": 2017,
+   "field": "Systems & Software",
+   "candidates": 196,
+   "relevant_found": 2,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W3027716805",
+   "text": "Casimir effect for lattice fermions",
+   "year": 2020,
+   "field": "Quantum Physics",
+   "candidates": 196,
+   "relevant_found": 3,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2135086881",
+   "text": "AN EXTENDED DELAY-RATIONAL MACROMODEL FOR ELECTROMAGNETIC INTERFERENCE ANALYSIS OF MIXED SIGNAL CIRCUITS",
+   "year": 2012,
+   "field": "Systems & Software",
+   "candidates": 183,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W7116932323",
+   "text": "Photo\u2010Assisted Lithium\u2013Oxygen Batteries: Mechanisms, Materials, and Perspectives",
+   "year": 2025,
+   "field": "Systems & Software",
+   "candidates": 179,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4385429454",
+   "text": "Active Galactic Nuclei Feedback in SDSS-IV MaNGA: AGNs Have Suppressed Central Star Formation Rates",
+   "year": 2023,
+   "field": "Physics & Astronomy",
+   "candidates": 187,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4286220295",
+   "text": "The Impact of Technological Innovation on Energy Consumption in OECD Economies: the role of Outward Foreign Direct Investment and International Trade Openness",
+   "year": 2022,
+   "field": "Economics & Finance",
+   "candidates": 187,
+   "relevant_found": 3,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4403558690",
+   "text": "Nano and micro-structural complexity of nematic liquid crystal configurations",
+   "year": 2024,
+   "field": "Physics & Astronomy",
+   "candidates": 189,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2394706720",
+   "text": "MIGRATION AND GROWTH OF PROTOPLANETARY EMBRYOS. III. MASS AND METALLICITY DEPENDENCE FOR FGKM MAIN-SEQUENCE STARS",
+   "year": 2016,
+   "field": "Physics & Astronomy",
+   "candidates": 186,
+   "relevant_found": 1,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W2789279429",
+   "text": "Frontiers of Mid-IR Lasers Based on Transition Metal Doped Chalcogenides",
+   "year": 2018,
+   "field": "Systems & Software",
+   "candidates": 197,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W7124725638",
+   "text": "Quantum chemical investigation and molecular design of coumarin-based heavy-metal-free photosensitizers for one- and two-photon excited fluorescence imaging and photodynamic therapy",
+   "year": 2026,
+   "field": "Physics & Astronomy",
+   "candidates": 198,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2612775748",
+   "text": "High-Mobility CVD-Grown Ge/Strained Ge0.9Sn0.1/Ge Quantum-Well pMOSFETs on Si by Optimizing Ge Cap Thickness",
+   "year": 2017,
+   "field": "Systems & Software",
+   "candidates": 188,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W7213955977",
+   "text": "Supercritical CO2 Foaming of Molecular Chain-Modified Polyimide for High-Performance Electromagnetic Wave Absorption",
+   "year": 2026,
+   "field": "Physics & Astronomy",
+   "candidates": 192,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4384302749",
+   "text": "Retrieval-Based Prompt Selection for Code-Related Few-Shot Learning",
+   "year": 2023,
+   "field": "Networks & Data Mining",
+   "candidates": 185,
+   "relevant_found": 3,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W3203482237",
+   "text": "Entropy Guided Adversarial Domain Adaptation for Aerial Image Semantic Segmentation",
+   "year": 2021,
+   "field": "Machine Learning",
+   "candidates": 175,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W1983426398",
+   "text": "Shape control and spectroscopy of crystalline BaZrO3 perovskite particles",
+   "year": 2007,
+   "field": "Physics & Astronomy",
+   "candidates": 186,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2768471315",
+   "text": "Tailoring Hybrid Layered Double Hydroxides for the Development of Innovative Applications",
+   "year": 2017,
+   "field": "Physics & Astronomy",
+   "candidates": 190,
+   "relevant_found": 4,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W2978451395",
+   "text": "Entanglement and collective flavor oscillations in a dense neutrino gas",
+   "year": 2019,
+   "field": "Physics & Astronomy",
+   "candidates": 188,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W1965989161",
+   "text": "ULTRAVIOLET LUMINOSITY FUNCTIONS FROM 132z\u223c 7 ANDz\u223c 8 LYMAN-BREAK GALAXIES IN THE ULTRA-DEEP HUDF09 AND WIDE-AREA EARLY RELEASE SCIENCE WFC3/IR OBSERVATIONS",
+   "year": 2011,
+   "field": "Physics & Astronomy",
+   "candidates": 173,
+   "relevant_found": 3,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4406904179",
+   "text": "Flavor-specific dark matter signatures through the lens of neutrino oscillations",
+   "year": 2025,
+   "field": "Physics & Astronomy",
+   "candidates": 191,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W7131666123",
+   "text": "Dietary specialization drives adaptation, convergence, and integration across the cranial and appendicular skeleton in Waterfowl (Anseriformes)",
+   "year": 2026,
+   "field": "Mathematics & Statistics",
+   "candidates": 192,
+   "relevant_found": 0,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4366827459",
+   "text": "Glutathione-Responsive Tannic Acid-Assisted FRET Nanomedicine for Cancer Therapy",
+   "year": 2023,
+   "field": "Physics & Astronomy",
+   "candidates": 191,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4380989838",
+   "text": "Origin of model fractional Chern insulators in all topological ideal flatbands: Explicit color-entangled wave function and exact density algebra",
+   "year": 2023,
+   "field": "Physics & Astronomy",
+   "candidates": 195,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4387956791",
+   "text": "Tailoring photocurrent in Weyl semimetals via intense laser irradiation",
+   "year": 2023,
+   "field": "Physics & Astronomy",
+   "candidates": 200,
+   "relevant_found": 4,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W1966732255",
+   "text": "FLAMINGOS NEAR INFRARED SURVEY OF THE SERPENS CLOUD MAIN CORE",
+   "year": 2010,
+   "field": "Physics & Astronomy",
+   "candidates": 185,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2104021481",
+   "text": "Discovery of the Narrow-Line Seyfert 1 Galaxy Markarian 335 in a Historical Low X-Ray Flux State",
+   "year": 2007,
+   "field": "Physics & Astronomy",
+   "candidates": 158,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4404809312",
+   "text": "Emulation of Forward Modeled Top-of-Atmosphere MODIS-Based Spectral Channels Using Machine Learning",
+   "year": 2024,
+   "field": "Physics & Astronomy",
+   "candidates": 192,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4416966004",
+   "text": "S2ML: Spatio-Spectral Mutual Learning for Depth Completion",
+   "year": 2025,
+   "field": "Computer Vision",
+   "candidates": 200,
+   "relevant_found": 1,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W4381747987",
+   "text": "Frequency Control and Optimal Operation of Low-Inertia Power Systems With HVDC and Renewable Energy: A Review",
+   "year": 2023,
+   "field": "Systems & Software",
+   "candidates": 173,
+   "relevant_found": 1,
+   "relevant_total": 6
+  },
+  {
+   "qid": "https://openalex.org/W4416758262",
+   "text": "Charged rotating quantum black holes",
+   "year": 2025,
+   "field": "Physics & Astronomy",
+   "candidates": 181,
+   "relevant_found": 2,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W7161752754",
+   "text": "Group size and the strength of social interactions determine the collective response to perturbation in a model of burst-and-coast swimming fish",
+   "year": 2026,
+   "field": "Systems & Software",
+   "candidates": 187,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4401929304",
+   "text": "Extended Shock Breakout and Early Circumstellar Interaction in SN 2024ggi",
+   "year": 2024,
+   "field": "Physics & Astronomy",
+   "candidates": 182,
+   "relevant_found": 4,
+   "relevant_total": 6
+  },
+  {
+   "qid": "https://openalex.org/W4412625225",
+   "text": "Future Antarctic marine accessibility in a warming world",
+   "year": 2025,
+   "field": "Physics & Astronomy",
+   "candidates": 187,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4409310303",
+   "text": "Adeno-associated viruses escort nanomaterials to specific cells and tissues",
+   "year": 2025,
+   "field": "Physics & Astronomy",
+   "candidates": 196,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2937791499",
+   "text": "Recent Progress in Molecular Design of Fused Ring Electron Acceptors for Organic Solar Cells",
+   "year": 2019,
+   "field": "Systems & Software",
+   "candidates": 158,
+   "relevant_found": 4,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W3109530166",
+   "text": "The axiomatic and the operational approaches to resource theories of magic do not coincide",
+   "year": 2022,
+   "field": "Quantum Physics",
+   "candidates": 200,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4413927908",
+   "text": "Periodic revivals from supersymmetry in a fermionic kinetically constrained model",
+   "year": 2025,
+   "field": "Quantum Physics",
+   "candidates": 199,
+   "relevant_found": 0,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4400874216",
+   "text": "Biobased polymer nanocomposites prepared by in situ polymerization: comparison between carbon and mineral nanofillers",
+   "year": 2024,
+   "field": "Physics & Astronomy",
+   "candidates": 187,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4414955873",
+   "text": "SSNet: Flexible and Robust Channel Extrapolation for Fluid Antenna Systems Enabled by a Self-Supervised Learning Framework",
+   "year": 2025,
+   "field": "Systems & Software",
+   "candidates": 181,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2048080283",
+   "text": "SUPERNOVA RELIC NEUTRINOS AND THE SUPERNOVA RATE PROBLEM: ANALYSIS OF UNCERTAINTIES AND DETECTABILITY OF ONeMg AND FAILED SUPERNOVAE",
+   "year": 2014,
+   "field": "Physics & Astronomy",
+   "candidates": 199,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4399465562",
+   "text": "Transition From Late\u2010Miocene Syn\u2010Orogenic Extension to Plio\u2010Pleistocene Corinth Rifting in the Southern Hellenides, Northern Peloponnese, Greece",
+   "year": 2024,
+   "field": "Physics & Astronomy",
+   "candidates": 191,
+   "relevant_found": 3,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W3126800970",
+   "text": "Transport phenomena in spin caloritronics",
+   "year": 2021,
+   "field": "Physics & Astronomy",
+   "candidates": 172,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W3048847482",
+   "text": "Invisible Higgs search through vector boson fusion: a deep learning approach",
+   "year": 2020,
+   "field": "Physics & Astronomy",
+   "candidates": 164,
+   "relevant_found": 1,
+   "relevant_total": 6
+  },
+  {
+   "qid": "https://openalex.org/W2008747862",
+   "text": "Expression of Concern: Managing on-chip inductive effects",
+   "year": 2002,
+   "field": "Systems & Software",
+   "candidates": 195,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W3196208077",
+   "text": "FO-Sketch: A Fast Oblivious Sketch for Secure Network Measurement Service in the Cloud",
+   "year": 2021,
+   "field": "Security & Cryptography",
+   "candidates": 200,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W3099469643",
+   "text": "Early-type Host Galaxies of Type Ia Supernovae. II. Evidence for Luminosity Evolution in Supernova Cosmology",
+   "year": 2020,
+   "field": "Physics & Astronomy",
+   "candidates": 172,
+   "relevant_found": 4,
+   "relevant_total": 6
+  },
+  {
+   "qid": "https://openalex.org/W4296779477",
+   "text": "X-ray absorption and reprocessing in the z \u223c 2.5 lensed quasar 2MASS J1042+1641",
+   "year": 2022,
+   "field": "Physics & Astronomy",
+   "candidates": 191,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4200184737",
+   "text": "Climatic constraints on the biogeographic history of Mesozoic dinosaurs",
+   "year": 2021,
+   "field": "Physics & Astronomy",
+   "candidates": 196,
+   "relevant_found": 2,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4364379192",
+   "text": "Quantification of High-dimensional Non-Gaussianities and Its Implication to Fisher Analysis in Cosmology",
+   "year": 2023,
+   "field": "Physics & Astronomy",
+   "candidates": 197,
+   "relevant_found": 3,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W4408979983",
+   "text": "Optimizing Intrusion Detection for IoT : A Systematic Review of Machine Learning and Deep Learning Approaches With Feature Selection and Data Balancing",
+   "year": 2025,
+   "field": "Security & Cryptography",
+   "candidates": 179,
+   "relevant_found": 3,
+   "relevant_total": 6
+  },
+  {
+   "qid": "https://openalex.org/W1879115057",
+   "text": "A DATA-DRIVEN APPROACH FOR RETRIEVING TEMPERATURES AND ABUNDANCES IN BROWN DWARF ATMOSPHERES",
+   "year": 2014,
+   "field": "Physics & Astronomy",
+   "candidates": 197,
+   "relevant_found": 3,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2523354349",
+   "text": "Extending semi-numeric reionization models to the first stars and galaxies",
+   "year": 2017,
+   "field": "Physics & Astronomy",
+   "candidates": 184,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W3207067909",
+   "text": "First Principles Calculation of the Topological Phases of the Photonic Haldane Model",
+   "year": 2021,
+   "field": "Physics & Astronomy",
+   "candidates": 195,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2740480794",
+   "text": "From colossal magnetoresistance to solar cells: An overview on 66 years of research into perovskites",
+   "year": 2017,
+   "field": "Physics & Astronomy",
+   "candidates": 173,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4391132483",
+   "text": "Phase Engineering of Nanostructural Metallic Materials: Classification, Structures, and Applications",
+   "year": 2024,
+   "field": "Physics & Astronomy",
+   "candidates": 191,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2614742890",
+   "text": "Many-body perturbation theory for understanding optical excitations in organic molecules and solids",
+   "year": 2018,
+   "field": "Physics & Astronomy",
+   "candidates": 190,
+   "relevant_found": 2,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W7134175875",
+   "text": "The \u2018climate Kuznets curve\u2019: A critique",
+   "year": 2026,
+   "field": "Economics & Finance",
+   "candidates": 199,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2898159308",
+   "text": "Origins of Molecular Clouds in Early-type Galaxies",
+   "year": 2019,
+   "field": "Physics & Astronomy",
+   "candidates": 164,
+   "relevant_found": 2,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W1967147504",
+   "text": "Saliency for animated meshes with material properties",
+   "year": 2010,
+   "field": "Computer Vision",
+   "candidates": 200,
+   "relevant_found": 2,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W7162675330",
+   "text": "Room-Temperature Altermagnetic Nb 2 OX 2 (X = S, Se, Te) Monolayers with Controllable Valley Polarization: Implications to Spintronic Devices",
+   "year": 2026,
+   "field": "Physics & Astronomy",
+   "candidates": 189,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4403745736",
+   "text": "Constraining planetary albedo of JWST targets in the TESS bandpass, using TESS, HST, and Spitzer eclipse depth observations",
+   "year": 2024,
+   "field": "Physics & Astronomy",
+   "candidates": 179,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W3105269860",
+   "text": "The long-term enhanced brightness of the magnetar 1E 1547.0\u20135408",
+   "year": 2020,
+   "field": "Physics & Astronomy",
+   "candidates": 199,
+   "relevant_found": 3,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W1988838065",
+   "text": "Cosmological Microlensing Statistics: Variability Rates for Quasars and Gamma\u2010Ray Burst Afterglows and Implications for Macrolensing Magnification Bias and Flux Ratios",
+   "year": 2002,
+   "field": "Physics & Astronomy",
+   "candidates": 156,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W3213655594",
+   "text": "Neurosensory anatomy of Varanopidae and its implications for early synapsid evolution",
+   "year": 2021,
+   "field": "Physics & Astronomy",
+   "candidates": 189,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4409233095",
+   "text": "Prompt-Based Modality Alignment for Effective Multi-Modal Object Re-Identification",
+   "year": 2025,
+   "field": "Computer Vision",
+   "candidates": 193,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2787102489",
+   "text": "Spinup and Disruption of Interstellar Asteroids by Mechanical Torques, and Implications for 1I/2017 U1 (\u2018Oumuamua)",
+   "year": 2018,
+   "field": "Physics & Astronomy",
+   "candidates": 198,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W3215453047",
+   "text": "A Review of P4 Programmable Data Planes for Network Security",
+   "year": 2021,
+   "field": "Systems & Software",
+   "candidates": 184,
+   "relevant_found": 4,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4309761344",
+   "text": "Helical magnetic mirror performance at up- and downstream directions of the axial force",
+   "year": 2022,
+   "field": "Physics & Astronomy",
+   "candidates": 194,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2069334182",
+   "text": "Statistical Significance of Clustering Using Soft Thresholding",
+   "year": 2014,
+   "field": "Machine Learning",
+   "candidates": 196,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4323651979",
+   "text": "Zwitterionic Separator Featured with Superdesolvating Properties for High Performance Lithium\u2013Sulfur Batteries",
+   "year": 2023,
+   "field": "Systems & Software",
+   "candidates": 191,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4410589288",
+   "text": "A Comprehensive Review of Sulfide Solid-State Electrolytes: Properties, Synthesis, Applications, and Challenges",
+   "year": 2025,
+   "field": "Systems & Software",
+   "candidates": 177,
+   "relevant_found": 2,
+   "relevant_total": 7
+  },
+  {
+   "qid": "https://openalex.org/W2794137082",
+   "text": "Advanced Phosphorus\u2010Based Materials for Lithium/Sodium\u2010Ion Batteries: Recent Developments and Future Perspectives",
+   "year": 2018,
+   "field": "Systems & Software",
+   "candidates": 147,
+   "relevant_found": 2,
+   "relevant_total": 6
+  },
+  {
+   "qid": "https://openalex.org/W3104810036",
+   "text": "X-ray and Sunyaev-Zel\u2019dovich scaling relations in galaxy clusters",
+   "year": 2013,
+   "field": "Physics & Astronomy",
+   "candidates": 177,
+   "relevant_found": 3,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W7125472092",
+   "text": "Scalable Steam\u2010Assisted Pyrolysis for Hard Carbon Anodes Toward High\u2010Performance Alkali\u2010Ion Storage",
+   "year": 2026,
+   "field": "Systems & Software",
+   "candidates": 173,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4393412181",
+   "text": "Reliable Identification of Binary Supermassive Black Holes from Rubin Observatory Time-domain Monitoring",
+   "year": 2024,
+   "field": "Physics & Astronomy",
+   "candidates": 189,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W3102834805",
+   "text": "Confronting Cold Dark Matter Predictions with Observed Galaxy Rotations",
+   "year": 2013,
+   "field": "Physics & Astronomy",
+   "candidates": 156,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W1966804683",
+   "text": "Multiple Functionalization of Bis(2\u2010pyridylimino)isoindole (BPI) Ligands: Their Modular Synthesis and Coordination to Palladium(II)",
+   "year": 2005,
+   "field": "Physics & Astronomy",
+   "candidates": 181,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4386600916",
+   "text": "Are seasonal deposits in spring at the Martian North Pole much shallower than previously thought?",
+   "year": 2023,
+   "field": "Physics & Astronomy",
+   "candidates": 200,
+   "relevant_found": 4,
+   "relevant_total": 7
+  },
+  {
+   "qid": "https://openalex.org/W2095500565",
+   "text": "Transient thermal effects in solid noble gases as materials for the detection of Dark Matter",
+   "year": 2011,
+   "field": "Physics & Astronomy",
+   "candidates": 150,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2165968856",
+   "text": "Quantitative estimates of the volatility of ambient organic aerosol",
+   "year": 2010,
+   "field": "Physics & Astronomy",
+   "candidates": 196,
+   "relevant_found": 3,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W3203195958",
+   "text": "COSMIC FP method in software development estimation using artificial neural networks based on orthogonal arrays",
+   "year": 2021,
+   "field": "Networks & Data Mining",
+   "candidates": 174,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W3197070775",
+   "text": "A New Set of Chisels for Galactic Archeology: Sc, V, and Zn as Taggers of Accreted Globular Clusters*",
+   "year": 2021,
+   "field": "Physics & Astronomy",
+   "candidates": 192,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W3126750856",
+   "text": "Recent Progress and Challenges in Multivalent Metal\u2010Ion Hybrid Capacitors",
+   "year": 2021,
+   "field": "Physics & Astronomy",
+   "candidates": 181,
+   "relevant_found": 2,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W2154791352",
+   "text": "Interface Engineering for CVD Graphene: Current Status and Progress",
+   "year": 2014,
+   "field": "Physics & Astronomy",
+   "candidates": 190,
+   "relevant_found": 2,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W3083772902",
+   "text": "Learning Discriminative Projection With Visual Semantic Alignment for Generalized Zero Shot Learning",
+   "year": 2020,
+   "field": "Machine Learning",
+   "candidates": 188,
+   "relevant_found": 4,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4383620934",
+   "text": "American financial hegemony, global capital cycles, and the macroeconomic growth environment",
+   "year": 2023,
+   "field": "Economics & Finance",
+   "candidates": 185,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4220797261",
+   "text": "Many-body van der Waals interactions in wet MoS 2 surfaces",
+   "year": 2022,
+   "field": "Physics & Astronomy",
+   "candidates": 193,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4213144811",
+   "text": "Stearate Liquid Marbles for Bacterial Cellulose Production: Influence of the Liquid Marble Interface on Bacterial Cellulose Properties",
+   "year": 2022,
+   "field": "Physics & Astronomy",
+   "candidates": 193,
+   "relevant_found": 4,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W2910849798",
+   "text": "Intrinsic measurements of exciton transport in photovoltaic cells",
+   "year": 2019,
+   "field": "Systems & Software",
+   "candidates": 187,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4399167780",
+   "text": "From Oxides to 2D Materials: Advancing Memristor Technologies for Energy-Efficient Neuromorphic Computing",
+   "year": 2024,
+   "field": "Systems & Software",
+   "candidates": 193,
+   "relevant_found": 3,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2149367114",
+   "text": "GRB 081028 and its late-time afterglow re-brightening",
+   "year": 2009,
+   "field": "Physics & Astronomy",
+   "candidates": 197,
+   "relevant_found": 4,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W4390872543",
+   "text": "Leveraging Electric Network Frequency Estimation for Audio Authentication",
+   "year": 2024,
+   "field": "Computer Vision",
+   "candidates": 192,
+   "relevant_found": 3,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2245030029",
+   "text": "Two-body correlations and natural-orbital tomography in ultracold bosonic systems of definite parity",
+   "year": 2015,
+   "field": "Physics & Astronomy",
+   "candidates": 197,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W1996377312",
+   "text": "A new scale-invariant ratio and finite-size scaling for the stochastic susceptible\u2013infected\u2013recovered model",
+   "year": 2011,
+   "field": "Physics & Astronomy",
+   "candidates": 184,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W3124091850",
+   "text": "Equivalent measure changes for subordinate diffusions",
+   "year": 2019,
+   "field": "Economics & Finance",
+   "candidates": 198,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4404179479",
+   "text": "MC-Refine: Enhanced Cross-Modal 3-D Object Detection via Multistage Cross-Scale Fusion and Box Refinement",
+   "year": 2024,
+   "field": "Computer Vision",
+   "candidates": 179,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4412592841",
+   "text": "Engineering living worms and active crystals with colloids propelled by attractive time-delayed feedback",
+   "year": 2025,
+   "field": "Robotics & Control",
+   "candidates": 196,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4403142596",
+   "text": "Majority vote for distributed differentially private sign selection",
+   "year": 2024,
+   "field": "Security & Cryptography",
+   "candidates": 194,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2894799725",
+   "text": "Uncertainty quantification in the nuclear shell model",
+   "year": 2018,
+   "field": "Physics & Astronomy",
+   "candidates": 199,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4413157331",
+   "text": "CARLA2Real: A Tool for Reducing the Sim2real Appearance Gap in CARLA Simulator",
+   "year": 2025,
+   "field": "Computer Vision",
+   "candidates": 200,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4309527202",
+   "text": "Coexistence of localization and transport in many-body two-dimensional Aubry-Andr\u00e9 models",
+   "year": 2022,
+   "field": "Quantum Physics",
+   "candidates": 195,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4391148760",
+   "text": "Switchable hidden spin polarization and negative Poisson's ratio in two-dimensional antiferroelectric wurtzite crystals",
+   "year": 2023,
+   "field": "Physics & Astronomy",
+   "candidates": 195,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4213428796",
+   "text": "Space-efficient optical computing with an integrated chip diffractive neural network",
+   "year": 2022,
+   "field": "Machine Learning",
+   "candidates": 183,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4281644816",
+   "text": "SDSS-IV MaNGA: Identification and multiwavelength properties of Type-1 AGN in the DR15 sample",
+   "year": 2022,
+   "field": "Physics & Astronomy",
+   "candidates": 196,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4307563099",
+   "text": "Semiclassical treatment of spinor topological effects in driven inhomogeneous insulators under external electromagnetic fields",
+   "year": 2022,
+   "field": "Physics & Astronomy",
+   "candidates": 199,
+   "relevant_found": 0,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W2996671208",
+   "text": "Geophysical and geochemical controls on abiotic carbon cycling on Earth-like planets",
+   "year": 2023,
+   "field": "Physics & Astronomy",
+   "candidates": 198,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4417124051",
+   "text": "Modelling Purcell enhancement of metasurfaces supporting quasi \u2010bound states in the continuum",
+   "year": 2025,
+   "field": "Physics & Astronomy",
+   "candidates": 195,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4407580047",
+   "text": "PGRS-FaultNet: A Fusion Model for Fault Detection and Prediction in Intelligent Manufacturing",
+   "year": 2025,
+   "field": "Robotics & Control",
+   "candidates": 186,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4378087161",
+   "text": "Surface Maps via Adaptive Triangulations",
+   "year": 2023,
+   "field": "Computer Vision",
+   "candidates": 195,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4400088737",
+   "text": "Tailoring Plasmonic Fields with Shape-Controlled Single-Crystal Gold Metasurfaces",
+   "year": 2024,
+   "field": "Physics & Astronomy",
+   "candidates": 195,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2788857014",
+   "text": "Tracing the atomic nitrogen abundance in star-forming regions with ammonia deuteration",
+   "year": 2018,
+   "field": "Physics & Astronomy",
+   "candidates": 186,
+   "relevant_found": 1,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W4400406704",
+   "text": "Infproto-Powered Adaptive Classifier and Agnostic Feature Learning for Single Domain Generalization in Medical Images",
+   "year": 2024,
+   "field": "Machine Learning",
+   "candidates": 169,
+   "relevant_found": 2,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W7163681695",
+   "text": "Domain Decomposition-Based DGTD Method With Automated Implicit--Explicit Classification for Multiscale Electromagnetic Modeling",
+   "year": 2026,
+   "field": "Systems & Software",
+   "candidates": 198,
+   "relevant_found": 4,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W1594467986",
+   "text": "Long-lived complexes and chaos in ultracold molecular collisions",
+   "year": 2014,
+   "field": "Physics & Astronomy",
+   "candidates": 196,
+   "relevant_found": 3,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2740234477",
+   "text": "Situation-Aware Dynamic Service Coordination in an IoT Environment",
+   "year": 2017,
+   "field": "Networks & Data Mining",
+   "candidates": 183,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4407007413",
+   "text": "An analytically tractable marked power spectrum",
+   "year": 2025,
+   "field": "Physics & Astronomy",
+   "candidates": 200,
+   "relevant_found": 0,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W3154255816",
+   "text": "The Macroporosity of Rubble Pile Asteroid Ryugu and Implications for the Origin of Chondrules",
+   "year": 2021,
+   "field": "Physics & Astronomy",
+   "candidates": 200,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2551862071",
+   "text": "Smallest chimera states",
+   "year": 2017,
+   "field": "Systems & Software",
+   "candidates": 200,
+   "relevant_found": 4,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W4322734321",
+   "text": "Trends in the Preparation and Passivation Techniques of Black Phosphorus Nanostructures for Optoelectronics Applications: A Review",
+   "year": 2023,
+   "field": "Physics & Astronomy",
+   "candidates": 197,
+   "relevant_found": 3,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4200550839",
+   "text": "DEBACER: a method for slicing moderated debates",
+   "year": 2021,
+   "field": "Language & Information Retrieval",
+   "candidates": 200,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W3049591706",
+   "text": "Deep Learning in the Industrial Internet of Things: Potentials, Challenges, and Emerging Applications",
+   "year": 2021,
+   "field": "Networks & Data Mining",
+   "candidates": 179,
+   "relevant_found": 0,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4405948346",
+   "text": "Thermal Optimization of Edge-Emitting Lasers Arrays",
+   "year": 2024,
+   "field": "Physics & Astronomy",
+   "candidates": 190,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W2890355685",
+   "text": "Euclid preparation: II. The EuclidEmulator \u2013 a tool to compute the cosmology dependence of the nonlinear matter power spectrum",
+   "year": 2019,
+   "field": "Physics & Astronomy",
+   "candidates": 167,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W3089127808",
+   "text": "Toward Mass Video Data Analysis: Interactive and Immersive 4D Scene Reconstruction",
+   "year": 2020,
+   "field": "Physics & Astronomy",
+   "candidates": 192,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4213415267",
+   "text": "The closest evolutionary relatives of pterosaurs: What the morphospace occupation of different skeletal regions tell us about lagerpetids",
+   "year": 2022,
+   "field": "Physics & Astronomy",
+   "candidates": 198,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4323665392",
+   "text": "A Survey of Deep Learning Based NOMA: State of the Art, Key Aspects, Open Challenges and Future Trends",
+   "year": 2023,
+   "field": "Systems & Software",
+   "candidates": 180,
+   "relevant_found": 3,
+   "relevant_total": 7
+  },
+  {
+   "qid": "https://openalex.org/W2064700418",
+   "text": "Surface morphology on high-temperature plasma-etched gallium nitride",
+   "year": 2013,
+   "field": "Physics & Astronomy",
+   "candidates": 176,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4387673147",
+   "text": "Topological holography: Towards a unification of Landau and beyond-Landau physics",
+   "year": 2023,
+   "field": "Quantum Physics",
+   "candidates": 197,
+   "relevant_found": 0,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4390144369",
+   "text": "Rechargeable Zinc\u2013Air versus Lithium\u2013Air Battery: from Fundamental Promises Toward Technological Potentials",
+   "year": 2023,
+   "field": "Systems & Software",
+   "candidates": 190,
+   "relevant_found": 3,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2798066437",
+   "text": "Tunable Free-Standing Core\u2013Shell CNT@MoSe 2 Anode for Lithium Storage",
+   "year": 2018,
+   "field": "Systems & Software",
+   "candidates": 168,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2543110117",
+   "text": "Tracking the coherent generation of polaron pairs in conjugated polymers",
+   "year": 2016,
+   "field": "Systems & Software",
+   "candidates": 194,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2795690500",
+   "text": "BANYAN. XII. New Members of Nearby Young Associations from GAIA\u2013Tycho Data",
+   "year": 2018,
+   "field": "Physics & Astronomy",
+   "candidates": 199,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4405812181",
+   "text": "Training Networks in Null Space of Feature Covariance With Self-Supervision for Incremental Learning",
+   "year": 2024,
+   "field": "Machine Learning",
+   "candidates": 188,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W2565780815",
+   "text": "UV photochemistry of carboxylic acids at the air\u2010sea boundary: A relevant source of glyoxal and other oxygenated VOC in the marine atmosphere",
+   "year": 2016,
+   "field": "Physics & Astronomy",
+   "candidates": 188,
+   "relevant_found": 1,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4249397484",
+   "text": "Microcombs for ultrahigh bandwidth optical data transmission and neural networks",
+   "year": 2021,
+   "field": "Machine Learning",
+   "candidates": 186,
+   "relevant_found": 1,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W3121559944",
+   "text": "Spanning Tests for Assets with Option-Like Payoffs: The Case of Hedge Funds",
+   "year": 2020,
+   "field": "Economics & Finance",
+   "candidates": 200,
+   "relevant_found": 4,
+   "relevant_total": 5
+  },
+  {
+   "qid": "https://openalex.org/W7161410762",
+   "text": "Semantic Visual Simultaneous Localization and Mapping: A survey on state of the art, challenges, and future directions",
+   "year": 2026,
+   "field": "Robotics & Control",
+   "candidates": 179,
+   "relevant_found": 1,
+   "relevant_total": 7
+  },
+  {
+   "qid": "https://openalex.org/W1980926604",
+   "text": "High-quality monoenergetic proton generation by sequential radiation pressure and bubble acceleration",
+   "year": 2009,
+   "field": "Physics & Astronomy",
+   "candidates": 188,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W3036164303",
+   "text": "Non-Hermiticity and topological invariants of magnon Bogoliubov\u2013de Gennes systems",
+   "year": 2020,
+   "field": "Physics & Astronomy",
+   "candidates": 198,
+   "relevant_found": 1,
+   "relevant_total": 9
+  },
+  {
+   "qid": "https://openalex.org/W4229055323",
+   "text": "DCC- and DECO-HEAVY: Multivariate GARCH models based on realized variances and correlations",
+   "year": 2022,
+   "field": "Economics & Finance",
+   "candidates": 185,
+   "relevant_found": 4,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W7134847101",
+   "text": "Exploring the Relationship between Swift Short Gamma-Ray Burst Afterglows and Their Host Galaxy Properties",
+   "year": 2026,
+   "field": "Physics & Astronomy",
+   "candidates": 184,
+   "relevant_found": 2,
+   "relevant_total": 9
+  },
+  {
+   "qid": "https://openalex.org/W7168170996",
+   "text": "Tailoring Zinc Anode Interface with a Lard Derivative Coating for High-Performance Aqueous Batteries",
+   "year": 2026,
+   "field": "Systems & Software",
+   "candidates": 193,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4399453940",
+   "text": "Partial Label Learning With Focal Loss for Sea Ice Classification Based on Ice Charts",
+   "year": 2024,
+   "field": "Physics & Astronomy",
+   "candidates": 193,
+   "relevant_found": 3,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2890882564",
+   "text": "MoS2 Quantum Dot/Graphene Hybrids for Advanced Interface Engineering of a CH3NH3PbI3 Perovskite Solar Cell with an Efficiency of over 20%",
+   "year": 2018,
+   "field": "Systems & Software",
+   "candidates": 165,
+   "relevant_found": 3,
+   "relevant_total": 6
+  },
+  {
+   "qid": "https://openalex.org/W2280432599",
+   "text": "Violations of multisetting quaternion and octonion Bell inequalities",
+   "year": 2015,
+   "field": "Quantum Physics",
+   "candidates": 193,
+   "relevant_found": 2,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W2037837622",
+   "text": "Cost-Effective Features for Reidentification in Camera Networks",
+   "year": 2014,
+   "field": "Computer Vision",
+   "candidates": 192,
+   "relevant_found": 0,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4210335518",
+   "text": "Diverse Complementary Part Mining for Weakly Supervised Object Localization",
+   "year": 2022,
+   "field": "Computer Vision",
+   "candidates": 193,
+   "relevant_found": 2,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W2094694479",
+   "text": "An Analytical Through Silicon Via (TSV) Surface Roughness Model Applied to a Millimeter Wave 3-D IC",
+   "year": 2015,
+   "field": "Computer Vision",
+   "candidates": 194,
+   "relevant_found": 3,
+   "relevant_total": 3
+  },
+  {
+   "qid": "https://openalex.org/W4402824346",
+   "text": "A comprehensive review of quantum machine learning: from NISQ to fault tolerance",
+   "year": 2024,
+   "field": "Quantum Physics",
+   "candidates": 183,
+   "relevant_found": 0,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W3103515799",
+   "text": "The carbon-to-oxygen ratio in stars with planets",
+   "year": 2013,
+   "field": "Physics & Astronomy",
+   "candidates": 171,
+   "relevant_found": 0,
+   "relevant_total": 4
+  },
+  {
+   "qid": "https://openalex.org/W4388447243",
+   "text": "Evidence for a Correlation between Binary Black Hole Mass Ratio and Black Hole Spins",
+   "year": 2023,
+   "field": "Physics & Astronomy",
+   "candidates": 171,
+   "relevant_found": 2,
+   "relevant_total": 5
+  }
+ ]
+}

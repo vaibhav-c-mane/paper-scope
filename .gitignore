@@ -1,0 +1,17 @@
+# secrets: API keys live only in .env on your own computer
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+secrets*
+
+# Python and editor clutter
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.log
+.DS_Store
+.idea/
+.vscode/

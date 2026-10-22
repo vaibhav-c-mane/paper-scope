@@ -1,0 +1,950 @@
+# PaperScope: project documentation
+
+This document describes PaperScope as the code in this folder implements it
+(version 3.4, 22 October 2026). Part 1 explains what the project does and how it
+is built, including a plain explanation of the learned ranker (section 11).
+Part 2 justifies each core data structure, compares it with alternatives on
+small worked examples, records the three changes made after measuring them, and
+describes the four hand-written structures added in version 3.4 so that every
+syllabus unit does real work in the project: a heap, a hash table, a binary
+search tree, and breadth-first search with a circular queue.
+
+Every number in this file was measured on the cloud machine used for the live
+tests, unless the text says otherwise. File references point to the code, so
+each statement can be checked.
+
+---
+
+# Part 1: The project
+
+## 1. Purpose
+
+PaperScope is a research paper search engine built for a data structures and
+algorithms course. You type a topic ("graph neural networks for molecules"), a
+boolean query (`deep AND (vision OR image) NOT survey`) or an identifier (a DOI,
+an arXiv id or an OpenAlex id), and it returns ranked papers with their year,
+venue, authors, citation count and abstract.
+
+It does not ship a copy of the literature. Papers come from three free online
+scholarly APIs: OpenAlex, then Semantic Scholar, then Crossref. Every paper
+fetched during a session is kept in an in-memory index, so a later search on a
+similar topic is answered from memory in milliseconds, without asking the
+internet again. Nothing about papers is written to disk. The only files the
+running app reads are the trained models in `data/models/`.
+
+The results are ordered by a learned ranker (gradient-boosted regression trees
+trained with LambdaMART) that combines nine signals: word match, meaning
+similarity, title and term coverage, research-field match, citations, recency,
+peer-review status and venue quality (section 11 explains it step by step).
+
+Opening a paper shows its related papers: the papers in memory joined to it by
+citations, closest first, found by breadth-first search over the citation graph.
+
+## 2. Architecture
+
+PaperScope has four layers. Each layer only calls the one below it.
+
+```
+ ┌──────────────────────────────────────────────────────────────────────────┐
+ │ Interfaces   static/ (web page)   app.py (Flask JSON API)                │
+ │              scripts/search.py (command line)                            │
+ ├──────────────────────────────────────────────────────────────────────────┤
+ │ Pipeline     engine/pipeline.py  SearchPipeline: parse, retrieve,        │
+ │              filter, compute features, rank, decide whether to go online │
+ ├───────────────────────────────┬──────────────────────────────────────────┤
+ │ In-memory index               │ Online sources                           │
+ │ engine/memindex.py PaperIndex │ engine/sources.py ScholarlyClient        │
+ │ engine/lexicon.py  Lexicon    │ OpenAlex → Semantic Scholar → Crossref   │
+ │ engine/ranker.py   rankers    │ rate limits, retries, cache (LRU + TTL)  │
+ │ engine/features.py, metadata  │                                          │
+ ├───────────────────────────────┴──────────────────────────────────────────┤
+ │ Syllabus structures  dsa/  stack, infix→postfix, merge + merge sort, LRU │
+ │                            heap, hash table, year BST, queue + BFS       │
+ └──────────────────────────────────────────────────────────────────────────┘
+ Offline, not used while searching:  ml/ (training, evaluation), scripts/fetch_openalex.py
+```
+
+One search follows this path (`engine/pipeline.py`, `SearchPipeline.rank` and `search`):
+
+```
+query text
+  │ parse_query: identifier? boolean operators? words, -exclusions, prefix*
+  ▼
+filters: year range (year BST), author, field, exclusions, AND/OR/NOT result set
+  ▼
+candidates from memory:  BM25 top 200 (inverted index)  ∪  nearest 200 vectors
+                         (each top 200 kept by a size-200 min-heap)
+  ▼
+9 features per candidate  ─►  ranker score + relevance (0..1)
+  ▼
+fewer than 3 candidates with relevance ≥ threshold (0.396 for the shipped model)?
+  │ yes ─► ScholarlyClient.search (≤ 50 papers) ─► PaperIndex.add ─► rank again
+  ▼
+rows sorted by score with merge sort (re-sorted by year or citations on request)
+  ▼
+one page of results + a trace of every step (shown in the web page's side panel)
+```
+
+## 3. Directory structure
+
+```
+paper-search/
+├── app.py                  Flask web server and JSON API (/api/search, /api/paper, /api/suggest, /api/state)
+├── requirements.txt        flask, numpy, scipy, scikit-learn (scikit-learn is needed for training only)
+├── README.md               how to install, run, train; results; live test
+├── RUN_ON_WINDOWS.md       step-by-step Windows instructions
+├── .env.example            template for API keys (copy to .env, which stays private)
+├── dsa/                    the syllabus data structures, written by hand
+│   ├── stack.py            array-based stack
+│   ├── expression.py       tokenizer, infix → postfix (shunting-yard), postfix evaluation
+│   ├── merge.py            merge of sorted lists, merge sort, AND / OR / NOT on sorted id lists
+│   ├── lru.py              LRU cache: hash map + doubly linked list, optional expiry time
+│   ├── heap.py             binary min-heap on an array; top-k selection
+│   ├── hashtable.py        hash table: polynomial hash, separate chaining, rehashing
+│   ├── bst.py              binary search tree keyed by year; range queries
+│   ├── queue.py            circular queue on an array
+│   └── graph.py            breadth-first search over adjacency lists
+├── engine/                 the search engine
+│   ├── pipeline.py         SearchPipeline: the whole search flow
+│   ├── memindex.py         PaperIndex: inverted index, vectors, metadata, eviction
+│   ├── lexicon.py          Lexicon: vocabulary, idf, TF-IDF columns, LSA embeddings
+│   ├── sources.py          OpenAlex, Semantic Scholar, Crossref clients and the cascade
+│   ├── ranker.py           GBDT (trees), linear and hand-set rankers
+│   ├── features.py         the nine ranking features
+│   ├── metadata.py         citations, recency, peer review, venue quality as 0..1 signals
+│   ├── domains.py          13 research fields, weak labels, field classifier
+│   ├── papers.py           one paper record format for every source
+│   └── text.py             tokenizer, stop words, small stemmer
+├── ml/                     offline training and evaluation (not used while searching)
+│   ├── dataset.py          citation-based relevance labels (online, pool or your own judgments)
+│   ├── lambdamart.py       LambdaMART training on scikit-learn regression trees
+│   ├── train.py            python -m ml.train: lexicon + rankers → data/models/
+│   ├── evaluate.py         python -m ml.evaluate: NDCG@10, MRR, P@10, R@50
+│   └── metrics.py          ranking metrics
+├── data/models/            trained models (15 MB): lexicon/ arrays, ranker.json, ranker_linear.json, eval_report.json
+├── scripts/
+│   ├── search.py           command-line search with the same pipeline
+│   ├── fetch_openalex.py   streams real papers from the OpenAlex snapshot for offline training
+│   └── ds_examples.py      reproduces the worked examples in Part 2 of this document
+├── static/                 index.html, app.js, style.css (the web page)
+├── tests/                  75 unit tests, no network needed (fake HTTP transport)
+└── docs/                   DESIGN.md, PROJECT.md (this file), screenshots
+```
+
+## 4. Main modules and their responsibilities
+
+| Module | Responsibility |
+|---|---|
+| `app.py` | Creates one `SearchPipeline` with a `ScholarlyClient`, validates request parameters and returns JSON. Memory limit from `PAPERSCOPE_CAPACITY` (default 20,000 papers). |
+| `static/app.js` | The single page: search form, result list, side panel ("trace") that shows how the search worked, paper drawer, word suggestions as you type. |
+| `scripts/search.py` | The same pipeline from the terminal. Several queries in one call share the in-memory index, so the second can be answered from memory. |
+| `engine/pipeline.py` | `parse_query` splits the query. `PreparedQuery` computes everything that depends only on the query (word ids, embedding, field distribution). `SearchPipeline` retrieves candidates, filters, computes features, ranks, decides whether to go online, sorts and pages the results, looks papers up by identifier and lists a paper's related papers. A re-entrant lock protects the shared index; the network call happens outside the lock. |
+| `engine/memindex.py` | `PaperIndex` holds every fetched paper: forward index, inverted index with BM25 weights, embedding matrix, field probabilities, metadata columns, the identity-key hash table, the year tree, the citation graph and the LRU order used for eviction. |
+| `engine/lexicon.py` | `Lexicon` holds statistics learned once from 600,013 real OpenAlex works: the vocabulary (240,705 words), document frequencies (for idf), the TF-IDF columns and the LSA projection that turns text into 160-number vectors, and the field classifier. It stores no titles or abstracts. |
+| `engine/sources.py` | One client per API (`OpenAlex`, `SemanticScholar`, `Crossref`) that turns each answer into the common paper format (OpenAlex answers include each paper's reference list). `ScholarlyClient` runs the cascade, caches answers in an LRU with expiry, skips a provider that just failed (for a minute, or as long as its rate limit asks, at most 6 hours), gives every later provider 1.5 s of the deadline, and rate-limits each provider with a token bucket. API keys come from `OPENALEX_API_KEY` and `S2_API_KEY` or from a private `.env` file. |
+| `engine/ranker.py` | `GBDTRanker` (the shipped model, 153 trees), `LinearRanker` (baseline) and `HeuristicRanker` (hand-set weights, used if no model is trained). Each gives a raw score and a 0..1 relevance (Platt scaling). Models are plain JSON. |
+| `engine/features.py`, `engine/metadata.py` | The nine features. Metadata features are 0..1, or −1 when unknown, so trees can treat "unknown" separately from "bad". |
+| `engine/domains.py` | Maps arXiv categories and OpenAlex topics to 13 fields; a logistic-regression classifier predicts the field of text that has no label (queries, Crossref papers). |
+| `engine/papers.py`, `engine/text.py` | The common paper record and its identity keys; the text analyzer shared by papers and queries. |
+| `dsa/*` | The hand-written syllabus structures used by the engine (see section 5). |
+| `ml/*` | Builds citation-based labels (query = a paper's title, relevant = the papers it cites), trains LambdaMART and the linear baseline, calibrates the confidence threshold, evaluates every system on held-out queries. |
+
+## 5. Core data structures in use
+
+| Structure | Where | Used for |
+|---|---|---|
+| Inverted index stored as flat sorted arrays (CSC form: `indptr`, `docs`, `weights`) | `engine/memindex.py` | BM25 scoring, word lookups for boolean queries and exclusions, coverage features |
+| Forward index (per paper: word ids, BM25 weights, title word ids) | `engine/memindex.py` | Building the inverted index without re-tokenising |
+| Hash table, hand-written (polynomial hash, separate chaining, doubling rehash), from identity keys (arXiv id, DOI, OpenAlex id, normalised title) to paper ids | `dsa/hashtable.py`, used by `engine/memindex.py` | Merging the same paper arriving from two sources; finding a paper by identifier |
+| LRU cache: hash map + doubly linked list | `dsa/lru.py`, used by `engine/memindex.py` and `engine/sources.py` | Evicting the least recently used paper when memory is full; caching API answers with an expiry time |
+| Dynamic arrays (numpy buffers that double when full) | `engine/memindex.py` (`_Grow`) | Embedding matrix, field probabilities, metadata columns, alive flags |
+| Dense embedding matrix + size-k binary min-heap | `engine/memindex.py`, `engine/pipeline.py` (`top_k`), `dsa/heap.py` | Exact nearest-neighbour search; picking the top 200 BM25 and vector candidates |
+| Binary search tree keyed by year | `dsa/bst.py`, used by `engine/memindex.py` (`by_year`) | Year-range filter |
+| Sorted vocabulary array + hash map word → id (Python dict) | `engine/lexicon.py` | Prefix queries (`optim*`) and suggestions by binary search; exact word lookups by hashing |
+| Array-based stack | `dsa/stack.py`, `dsa/expression.py` | Infix → postfix conversion and postfix evaluation of AND / OR / NOT |
+| Sorted lists + two-pointer merge | `dsa/merge.py` | AND, OR, NOT between posting lists |
+| Merge sort | `dsa/merge.py` | Ordering result rows by score, year or citations (stable) |
+| Binary trees in array form | `engine/ranker.py` | The 153 regression trees of the ranker |
+| Sparse matrices (CSR) | `engine/lexicon.py` | TF-IDF of new papers and queries |
+| Token bucket | `engine/sources.py` | Rate limits per API |
+| Citation graph as adjacency lists (each paper's reference list, plus a hash map from a work to the papers citing it) | `engine/memindex.py` (`citers`, `neighbours`); `ml/dataset.py` (`Pool.refs`) | Related papers; training labels (which papers a seed paper cites) |
+| Circular queue + breadth-first search | `dsa/queue.py`, `dsa/graph.py` | Related papers, nearest by citation links first |
+
+## 6. How the components interact
+
+**A search answered from memory.** The browser calls `/api/search?q=...`;
+`app.py` calls `SearchPipeline.search`, which calls `rank`. `parse_query`
+separates words, exclusions and operators. Under the lock, `_rank_local`
+builds the filter mask (`_allowed`; a year range is read from the year tree), evaluates a boolean expression if there is
+one (`_boolean`: tokens → postfix on a stack → posting-list merges), and asks
+`PaperIndex` for candidates: `bm25` reads the posting lists of the query words
+and `top_k` keeps the best 200 with a size-200 min-heap; `search_vectors`
+multiplies the embedding matrix by the query vector and keeps the nearest 200
+the same way. The union is scored:
+`feature_matrix` computes the nine features and the ranker turns them into a
+score and a relevance. If at least three candidates reach the threshold, the
+rows are sorted with merge sort and one page is returned with a trace.
+
+**A search that goes online.** With fewer than three confident candidates,
+`rank` releases the lock and calls `ScholarlyClient.search`. For each provider
+in order it first checks the cache (an LRU with expiry: a day for results, an
+hour for "nothing found"), then the cool-down table, then sends the request
+through the provider's token bucket with a timeout and retries. It stops once the
+providers asked so far have returned at least 25 distinct papers (half of the
+50 asked for) or when the 6-second deadline is reached. The papers are normalised to one
+format and passed to `PaperIndex.add`, which merges duplicates through the
+identity-key hash table, tokenises and embeds the new papers, appends their rows
+to the dynamic arrays, their years to the year tree, their reference lists to the
+citation graph and their keys to the LRU (evicting the oldest papers if the
+index is full). The next read of the inverted index merges the new postings
+in. Then the ranking is computed again over everything in memory, with the new
+papers forced into the candidate set.
+
+**An identifier.** A DOI, arXiv id or OpenAlex id is looked up in the identity
+map first; if missing, `ScholarlyClient.get_paper` asks OpenAlex, then Semantic
+Scholar, then (for DOIs) Crossref, and the paper is added to memory.
+
+**Related papers.** `/api/paper?key=...` returns the paper with up to 8 related
+papers. `PaperIndex.related` runs breadth-first search from it over the citation
+links between papers in memory, at most 2 links away: first the papers it cites
+and the papers citing it, then the papers one link further, each with the paper
+it was reached through. The web page shows them under the abstract; clicking one
+opens it. Only OpenAlex lists references, so papers that came only from Semantic
+Scholar or Crossref have no citation links.
+
+**Suggestions.** `/api/suggest?prefix=prot` runs two binary searches in the
+sorted vocabulary and returns the most frequent words in that range.
+
+**Training (offline).** `python -m ml.train` builds the lexicon from real
+papers, creates citation-labelled queries, computes the same features the
+search computes (`PreparedQuery`, `feature_matrix`), trains LambdaMART and the
+linear model, and writes `data/models/`. The search engine only reads those
+files.
+
+## 7. Setup and running
+
+Requirements: Python 3.9 or newer, internet access to api.openalex.org,
+api.semanticscholar.org and api.crossref.org.
+
+```bash
+cd paper-search
+python -m venv .venv
+source .venv/bin/activate            # Windows: .venv\Scripts\Activate.ps1 (see RUN_ON_WINDOWS.md)
+python -m pip install -r requirements.txt
+cp .env.example .env                 # then write your free OpenAlex key after OPENALEX_API_KEY=
+python app.py                        # open http://127.0.0.1:5000
+```
+
+Other commands:
+
+```bash
+python scripts/search.py "graph neural networks for molecules"     # command line
+python scripts/search.py 10.48550/arXiv.1706.03762                 # one paper by id
+python -m unittest                                                  # 75 tests, no network
+python scripts/ds_examples.py                                       # the examples in Part 2
+python -m ml.train --online                                         # retrain from OpenAlex (needs a key)
+python -m ml.evaluate --online --queries 300                        # evaluate on fresh queries
+```
+
+Without an OpenAlex key the search still works through Crossref, but OpenAlex
+refuses requests once the free budget shared by everyone on the same network is
+used up (seen on 19 October 2026). With a free key each OpenAlex request costs
+$0.001 of a $1 daily allowance.
+
+## 8. Notable design decisions
+
+* **Online first, nothing stored.** Papers live only in memory for the session.
+  This follows the owner's requirement ("everything online, no local data
+  storage") and is why the index has a fixed capacity and an eviction policy.
+* **Memory before the network.** The network is used only when memory has fewer
+  than three confident matches, so related searches in a session are fast and
+  cost no API budget.
+* **Background statistics.** BM25 idf and the embeddings come from 600,013 real
+  works learned once, not from the few dozen papers in memory; otherwise every
+  fetched paper contains the query words and those words would look common.
+* **Real data only.** Training and evaluation use real OpenAlex papers and
+  citation labels; the small corpus in `tests/fixtures.py` only exercises the
+  code.
+* **Plain-file models.** Rankers and the lexicon are JSON and numpy arrays, so
+  they load without pickle and without scikit-learn at run time.
+* **Every syllabus unit does a real job.** Version 3.3 implemented only what
+  the search strictly needed (one sort, one stack). After the owner's review,
+  version 3.4 added a heap, a hash table, a binary search tree and BFS with a
+  circular queue, each where it does real work in a search (section 10). They
+  are written by hand in Python, which costs some speed against numpy and
+  Python's built-ins written in C (section 9).
+* **Explainable results.** Every search returns a trace (stack steps, candidate
+  counts, providers asked, features of each paper), shown in the web page.
+
+## 9. Known limitations
+
+* **API keys and limits.** OpenAlex needs a free key once the shared budget is
+  used up; Semantic Scholar mostly answers "too many requests" without a key;
+  Crossref often has no abstracts, which weakens word and meaning features for
+  its papers.
+* **Ranker trained offline.** The shipped models were trained on a snapshot pool
+  (`--pool`), because the APIs were not reachable when they were built. Live
+  online training works, but only about 1 in 7 live citation queries finds a
+  cited paper in its top 100, so a useful online training set needs thousands of
+  queries over several days of API budget.
+* **Session memory only.** Everything fetched is forgotten when the app stops.
+* **One lock.** All requests share one index under one lock, so searches from
+  several users are processed one at a time (the network part runs in parallel).
+* **Hand-written structures cost speed.** Measured back to back on 11,866 real
+  papers in memory (22 October 2026): a search from memory takes 20.9 ms with
+  the version 3.4 structures against 14.6 ms with the numpy and built-in
+  versions they replaced. Picking the top 200 of 11,866 scores takes 3.3 ms with
+  the Python heap against 0.03 ms with numpy's `argpartition`, and it runs twice
+  per search; a key lookup takes about 4 µs in the hand-written hash table
+  against 0.05 µs in Python's dict; the year tree answers "2018 to 2020" in
+  0.14 ms against 0.03 ms for a numpy comparison of every year. The owner chose
+  this cost so the syllabus structures do the real work.
+* **Related papers come only from memory.** BFS walks the papers already
+  fetched, so a paper opened right after an identifier search may show none
+  until its topic has been searched. Asking OpenAlex for reference lists makes
+  each search answer larger to download.
+* **Linear scans that remain.** The author filter checks every paper's author
+  string (O(n) per search with an author), and a prefix with more than 40
+  matching words keeps the 40 most common.
+* **Merge sort in Python.** It is about 20 times slower than Python's built-in
+  sort on 400 rows (0.85–1.6 ms vs 0.04–0.09 ms), a cost accepted to keep the
+  syllabus algorithm; it is a few percent of a search.
+* **Index compaction pause.** After evictions, stale postings stay in the
+  inverted index until a quarter of the slots are dead; then one search pays for
+  a full rebuild (about 350 ms at 20,000 papers, roughly once every 100 online
+  searches when the index is full).
+
+## 10. Syllabus: what was implemented and why
+
+The rule was to implement a syllabus topic only where the search engine has a
+real job for it. Version 3.4 added the heap, the hand-written hash table, the
+binary search tree, the circular queue and BFS, so every unit now has at least
+one structure doing work in a search.
+
+| Unit | Used | Where and why | Not used, and why |
+|---|---|---|---|
+| 1 Arrays, searching, sorting | Arrays and dynamic arrays; sparse matrix (CSC/CSR); time and space complexity; binary search; merge sort; heap (array form) | Every index structure is an array; posting lists are a sparse term × paper matrix; binary search over the sorted vocabulary gives prefix ranges; merge sort orders results stably; a size-k min-heap picks the 200 best candidates | Linear, indexed, Fibonacci search (no unsorted or indexed-sequential data to search); bubble, selection, insertion, quick, radix, shell, bucket sort and heap sort (one stable O(n log n) sort is enough, and heap sort is not stable, see 2.8); address calculation (numpy does it) |
+| 2 Linked lists | Doubly linked list; dynamic allocation; vectors | The LRU order (O(1) move-to-end and remove); `_Grow` is a vector that doubles | Singly, circular and generalized lists: no job for them in the search |
+| 3 Stacks and queues | Array-based stack; infix → postfix; postfix evaluation; circular queue | Boolean queries use two stacks; the BFS for related papers keeps its frontier in a circular queue | Linked-list stack (no advantage, see 2.6); deque, priority queue as a separate type, Josephus: no job in the search |
+| 4 Trees | Binary search tree (insert, delete, range search by pruned in-order traversal); binary trees in array representation; non-recursive traversal | The year tree answers year-range filters; the ranker's 153 regression trees are stored as arrays and walked iteratively | Threaded trees, general-tree conversion, AVL or red-black balancing (the year tree has a few hundred nodes at most and is rebuilt balanced at every compaction) |
+| 5 Graphs | Adjacency lists; breadth-first search | Related papers: BFS over the citation graph of the papers in memory; the same graph gives training labels in `ml/dataset.py` | DFS (its order is not "closest first", see 2.12); spanning trees, shortest weighted paths (citation links have no weights) |
+| 6 Hashing | Hash function (polynomial rolling hash); collision resolution by separate chaining; load factor and rehashing | The identity-key table that merges duplicate papers is written by hand (`dsa/hashtable.py`); the vocabulary, the LRU map and the API cache use Python's dict | Open addressing written by hand (separate chaining is simpler to delete from); a hand-written table for the vocabulary (240,705 words: Python's dict is about 80 times faster there and the vocabulary is read for every word of every paper) |
+
+## 11. How the learned ranker works, step by step
+
+This section explains the ranker without the machine learning vocabulary, so
+it can be presented at a second-year level.
+
+**1. Nine numbers describe how well a paper fits a query.** For every candidate
+paper, `engine/features.py` computes nine features between 0 and 1: word match
+(BM25), meaning similarity (embeddings), how much of the title and of the query
+the paper covers, whether its field matches the query's field, citations,
+recency, peer review and venue quality (−1 when unknown).
+
+**2. One regression tree is a list of yes/no questions.** Each inner node asks
+one question about one feature ("is word match ≤ 0.46?"); the answer sends the
+paper left or right, until it reaches a leaf that holds a number. Example 10 in
+Part 2 walks one paper through a three-question tree.
+
+**3. The score is the sum of 153 trees.** The shipped model has 153 such trees,
+each with at most 31 leaves. A paper's score is the sum of the 153 leaf numbers
+it reaches; papers are shown in decreasing score. Each tree only adds a small
+correction to the trees before it.
+
+**4. How the trees were learned (LambdaMART), in plain steps.**
+1. Training data: 3,177 real papers used as queries. The query is the paper's
+   title; the papers it cites count as relevant answers.
+2. Start with every score at 0.
+3. In each round, for every query, look at pairs (a cited paper, a paper that is
+   not cited). If the current scores put the pair in the wrong order, the cited
+   paper should move up and the other down. The push is stronger when swapping
+   the two would change the quality of the top 10 (NDCG@10) a lot, so mistakes
+   near the top count most. These pushes are called lambdas.
+4. Fit one new tree that predicts each paper's push from its nine features, then
+   add the tree's leaf values, multiplied by 0.08 (the learning rate), to the
+   scores.
+5. Check the quality on 460 separate validation queries after each round, and
+   stop when it has not improved for 60 rounds. The best result came after 153
+   trees (213 rounds were run).
+
+**5. From score to "relevant".** The score is turned into a 0..1 relevance with
+Platt scaling: relevance = 1 / (1 + e^−(0.668 × score − 3.868)). A paper counts
+as a confident match at relevance 0.396 or more, and the search goes online when
+fewer than 3 papers in memory are confident.
+
+**6. What the trees rely on.** Each feature's share of the improvement made by
+the trees' questions (`importance` in `data/models/ranker.json`): citations 0.28, word match
+0.24, meaning similarity 0.13, field match 0.12, title coverage 0.08, recency
+0.07, query coverage 0.06, venue quality 0.02, peer review 0.
+
+**7. Why trees and not a weighted sum.** On 1,199 held-out test queries the
+trees score NDCG@10 0.240, a learned weighted sum of the same nine features
+(`data/models/ranker_linear.json`) 0.228, and hand-set weights 0.145. The trees
+can learn rules a weighted sum cannot, such as "citations matter only when the
+words also match". The owner chose to keep the trees as the default.
+
+In one sentence: the ranker adds up the answers of 153 small decision trees,
+each trained to fix the ordering mistakes the trees before it still made.
+
+---
+
+# Part 2: Data structure justification and evaluation
+
+## How the structures were evaluated
+
+The operations that run most often are, per search: reading posting lists for
+BM25, the vector search, picking the top candidates, computing features,
+scoring candidates with the ranker, and sorting the result rows. Per online
+search (each new topic) the engine also adds about 50 papers: tokenising them,
+looking up every word in the vocabulary, merging duplicates by identity key,
+updating the inverted index and the LRU order.
+
+Each structure was compared with at least two alternatives in two ways:
+
+1. **A small worked example**, the same input run through the chosen structure
+   and the alternatives, with the operations counted. The blocks below are the
+   output of `python scripts/ds_examples.py` (inputs are a few made-up words and
+   ids, chosen to be easy to follow by hand).
+2. **A measurement at full size**: 20,000 real OpenAlex works (fetched with the
+   project's own client for this measurement only and kept outside the project),
+   the default memory limit. The index then holds 1,639,034 postings and 59,450
+   identity keys. Times are medians of repeated runs. The structures added in
+   version 3.4 were measured the same way on 12,000 real works (11,866 after
+   duplicates were merged, 35,653 identity keys) on 22 October 2026, against
+   the version 3.3 code run back to back on the same machine.
+
+Notation: n papers in memory, P postings in the inverted index, p postings of
+the new papers, V words in the vocabulary (240,705), k the number of results kept.
+
+## Summary of the outcome
+
+| Structure | Verdict | Effect at 20,000 papers |
+|---|---|---|
+| Inverted index update | **Changed**: full re-sort → linear append merge | Adding 50 papers: 392–465 ms → 75–92 ms |
+| Vocabulary lookup | **Changed**: binary search only → hash map for exact lookups (sorted array kept for prefixes) | 36,622 lookups: 42–54 ms → 11 ms, costs 14.4 MB |
+| Ranker tree walk | **Changed**: level-by-level matrix → shrinking array of active pairs | Scoring 400 candidates: 31–49 ms → 11–17 ms |
+| Identity-key hash table | **Changed in 3.4** (syllabus): Python dict → hand-written separate chaining | About 4 µs per lookup vs 0.05 µs (dict); about 1 ms per online search |
+| LRU (hash map + doubly linked list) | Kept | 0.7–1.1 µs per operation; under 0.1 ms per search |
+| Array stack | Kept | Queries have a few dozen tokens; alternatives give no gain |
+| Sorted lists + merge | Kept | O(m + n), output already sorted |
+| Merge sort | Kept (syllabus constraint, and stability is needed) | 0.85–1.6 ms per 400 rows |
+| Dynamic arrays | Kept | 2,000 appends: 2.8–3.1 ms vs 128–139 ms with exact-size copies |
+| Top-k candidate selection | **Changed in 3.4** (syllabus): numpy partial selection → size-k min-heap | Top 200 of 11,866: 0.03 ms → 3.3 ms, twice per search |
+| Year-range filter | **Added in 3.4**: binary search tree keyed by year | 0.14 ms per range vs 0.03 ms for a numpy scan of every year |
+| Related papers | **Added in 3.4**: citation graph (adjacency lists) + BFS with a circular queue | New feature: 0.14 ms median per paper opened (377 papers, 1,211 links) |
+
+The three changes of version 3.3 keep the external behaviour identical. The
+version 3.4 changes keep it identical except where two candidates tie exactly
+at the 200th place: the heap then keeps the smaller paper id, where numpy kept
+an arbitrary one. Section "Verification" shows how both were checked.
+
+Overall, at 20,000 papers: a search answered from memory went from 62–70 ms to
+40–42 ms, the CPU part of a search that goes online (adding 50 papers and
+updating the index) went from 392–465 ms to 75–92 ms, and filling memory with
+20,000 papers in batches of 50 went from 84–87 s to 27–28 s.
+
+A later fix (v3.3, not a data structure change) stopped `_rank_local` from
+computing the ranker score twice: `relevance` now reuses the score already
+computed. In one back-to-back run on the same machine, a search from memory took
+34.6 ms before and 30.0 ms after, with identical results.
+
+Version 3.4 traded some of that speed back for the syllabus structures: on
+11,866 papers a search from memory took 14.6 ms with the version 3.3 code and
+20.9 ms with version 3.4, almost all of the difference being the Python heap;
+adding 50 papers went from 39.7 ms to 43.1 ms (hash table, year tree and
+citation graph together).
+
+## 2.1 Inverted index (changed)
+
+**What it is.** For every word, the sorted list of papers that contain it, with
+each paper's BM25 weight for that word. All lists are stored back to back in two
+flat arrays (`docs`, `weights`), and `indptr[t]` says where word t's list
+starts: the papers containing word t are `docs[indptr[t]:indptr[t+1]]`. This is
+the compressed sparse column (CSC) form of the sparse term × paper matrix.
+
+**Why it was chosen.** A query reads only its own words' lists. BM25 for every
+paper is one vectorised pass per query word (`acc[docs[lo:hi]] += w * ws[lo:hi]`),
+so the text of the papers is never scanned. Only non-zero cells are stored.
+
+**What changed.** The arrays used to be rebuilt from scratch after every batch
+of new papers: concatenate all postings and sort them again by (word, paper),
+O(P log P). But new papers always get larger ids than every paper already
+indexed, so each word's new postings belong at the end of its list. The new
+`PaperIndex._append_lists` computes, for every posting, its position in the
+merged arrays with two `np.repeat` calls and writes it there: O(P + p), no
+comparisons. Evicted papers' postings stay in the arrays and are skipped when
+read (`postings`, `bm25`, `_df`) until compaction renumbers the papers and
+rebuilds once.
+
+```
+=== Example 1: inverted index, adding one paper
+before   indptr [0, 2, 3, 5, 6] docs [0, 1, 1, 0, 2, 2]
+         graph -> docs[0:2] = [0, 1]
+chosen   append merge: new postings [3, 3] for words ['graph', 'quantum']
+         after  indptr [0, 3, 4, 6, 8] docs [0, 1, 3, 1, 0, 2, 2, 3]
+         operations: 8 array writes, no comparisons (paper 3 > every old id)
+alt. 1   full rebuild: sort all 8 (word, paper) pairs again, about n log2 n = 24 comparisons; same result: True
+alt. 2   hash map of Python lists: {'graph': [0, 1, 3], 'image': [1], 'network': [0, 2], 'quantum': [2, 3]}
+         append is 1 operation per new posting, but every id is a separate Python object
+```
+
+(Words are numbered graph 0, image 1, network 2, quantum 3; papers 0–2 contain
+"graph network", "graph image" and "network quantum"; paper 3 contains "graph quantum".)
+
+| | Add p postings | Read one word's list | BM25 over q words | Space |
+|---|---|---|---|---|
+| **Chosen: CSC arrays, append merge** | O(P + p) | O(1) to find, then a slice | vectorised, O(postings read) | 12 bytes per posting |
+| Alt. 1: CSC arrays, full re-sort (old code) | O((P + p) log(P + p)) | same | same | same |
+| Alt. 2: hash map word → Python lists | O(p) | O(1) | Python loop per posting | about 80 bytes per posting |
+
+Measured at 20,000 papers (P = 1,639,034): adding 50 papers and updating the
+index took **392–465 ms with the full re-sort and 75–92 ms with the append
+merge** (re-sort alone: about 346 ms). The hash map of lists would make appends
+cheap, but it needs 131 MB instead of 21.7 MB, and BM25 over its lists took
+1.72 ms per query instead of 0.09 ms because every posting is visited by Python
+code. The append merge keeps the fast reads and removes the re-sort.
+
+## 2.2 Vocabulary lookup (changed)
+
+**What it is.** The lexicon's 240,705 words in a sorted array, plus (new) a hash
+map from word to its position.
+
+**Why both.** Two operations need the vocabulary. Exact lookup ("which id is
+'network'?") runs for every word of every paper added, about 120 lookups per
+paper. Prefix lookup (`optim*` in a query, suggestions while typing) needs every
+word starting with a prefix; in a sorted array these form one contiguous range,
+found with two binary searches. The old code used binary search for both, so
+each exact lookup cost about 18 string comparisons (log2 240,705). A hash map
+answers it in O(1) on average.
+
+```
+=== Example 7: looking up words in the vocabulary
+vocab     ['graph', 'image', 'net', 'network', 'neural', 'optimal', 'optimize', 'quantum']
+chosen   exact 'network': hash map -> id 3 (1 hash, 1 comparison)
+         prefix 'optim*': two binary searches in the sorted array -> ids 5..6 ['optimal', 'optimize']
+alt. 1   binary search only: exact 'network' takes 3 string comparisons (log2 V; 18 for 240,705 words)
+alt. 2   trie: 'network' walks 7 nodes, prefix 'optim*' walks 5 then lists the subtree; 39 nodes for 8 words
+```
+
+| | Exact lookup | Prefix range | Extra space |
+|---|---|---|---|
+| **Chosen: sorted array + hash map** | O(1) average | O(log V) | 14.4 MB for the map |
+| Alt. 1: sorted array only (old code) | O(log V) | O(log V) | none |
+| Alt. 2: trie | O(word length) | O(prefix length) + subtree | 126.9 MB as Python dicts |
+| Alt. 3: hash map only | O(1) | O(V) scan (no order) | 14.4 MB |
+
+Measured on 36,622 real word lookups: **42–54 ms with binary search, 11 ms with
+the hash map**. In the end-to-end test this saved about 11 ms per batch of 50
+added papers. The trie would serve prefixes well, but in Python it needs about
+nine times the memory of the map, and the sorted array already gives prefix
+ranges in O(log V).
+
+## 2.3 Ranker trees (changed)
+
+**What it is.** The 153 regression trees of the shipped model are binary trees
+in array form: for node i, `feature[i]`, `threshold[i]`, `left[i]`, `right[i]`
+(−1 for a leaf) and `value[i]`. All trees are packed into the same arrays (9,333
+nodes). A candidate's score is the sum of the leaf values it reaches.
+
+**What changed.** The old walk kept a dense matrix with the current node of
+every (candidate, tree) pair and updated the whole matrix once per tree level,
+as many times as the deepest tree is deep (19), even for pairs already at a leaf.
+The average path is only 4.5 nodes long. The new walk keeps a shrinking array of
+the pairs that are not at a leaf yet (`active`) and drops each pair as soon as it
+reaches its leaf, so each pair costs one step per node on its own path.
+
+```
+=== Example 10: scoring one candidate with one regression tree
+chosen   arrays feature/threshold/left/right/value; x = [0.8, 0.75]: path [0, 2, 4] -> 0.9
+         (all candidates and trees walk together; a pair leaves the active array at its leaf)
+alt. 1   node objects with left/right pointers: same path, one Python object per node,
+         walked one candidate at a time in Python
+alt. 2   dense level-by-level matrix of positions: every (candidate, tree) pair is updated at every
+         level of the deepest tree (19 for the shipped model) even after reaching its leaf
+```
+
+(The tree in the example: node 0 asks "bm25 ≤ 0.5?"; yes leads to leaf 1
+(−0.3); no leads to node 2, "semantic ≤ 0.7?", whose leaves are 3 (0.2) and 4 (0.9).)
+
+| | Work to score c candidates with T trees | Space |
+|---|---|---|
+| **Chosen: arrays + active pairs** | O(c · total path length), about c · T · 4.5 steps, vectorised | arrays of the nodes + c · T positions |
+| Alt. 1: node objects (linked representation) | same steps, but one Python step each | one object per node |
+| Alt. 2: arrays + dense level-by-level matrix (old code) | O(c · T · max depth) = c · T · 19 steps, vectorised | same as chosen |
+
+Measured on 400 candidates: **31–49 ms with the dense matrix, 11–17 ms with
+the active pairs**; node objects walked in Python took 22–32 ms. At the time of
+this change the ranker ran twice per search (score, then relevance), so this was
+the main reason a search from memory went from 62–70 ms to 40–42 ms. Since v3.3
+it runs once.
+
+## 2.4 Identity-key hash table (changed in 3.4)
+
+**What it is.** `PaperIndex.key_to_doc`, a hash table from keys such as
+`doi:10.1038/nature14539`, `arxiv:1706.03762`, `openalex:w2741809807` and a
+normalised title to the paper's id. Since version 3.4 it is the hand-written
+`dsa/hashtable.py` instead of a Python dict:
+
+* hash function: polynomial rolling hash of the key's characters,
+  h = h × 31 + code(character), kept to 64 bits; bucket = h mod number of buckets;
+* collisions: separate chaining, each bucket a short list of (key, id) pairs;
+* overflow: when entries / buckets passes 0.75, the number of buckets doubles
+  and every entry is re-hashed.
+
+**Why a hash table.** Every paper that comes back from an API is checked against
+it (about 3 keys per paper, 50 papers per online search) to merge the same paper
+arriving from two sources, and every identifier search and result page uses it.
+
+```
+=== Example 2: finding a paper by an identity key (hand-written hash table)
+chosen   put arxiv:1706.03762         hash mod 4 = bucket 0
+chosen   put doi:10.1038/nature14539  hash mod 4 = bucket 1
+chosen   put openalex:w2741809807     hash mod 4 = bucket 1
+chosen   put doi:10.1145/3292500      hash mod 4 = bucket 2  -> load 4/4 > 0.75: rehash into 8 buckets
+         buckets now: [[], ['doi:10.1038/nature14539'], ['doi:10.1145/3292500'], [], ['arxiv:1706.03762'], ['openalex:w2741809807'], [], []]
+         get doi:10.1145/3292500: bucket 2, compare 1 key(s) -> 3
+alt. 1   list scan: compare keys one by one -> 4 comparisons (n in the worst case)
+alt. 2   sorted list + binary search: 2 comparisons (log2 n); but inserting a new key shifts 3 keys to the right
+```
+
+| | Lookup | Insert | Delete | Space |
+|---|---|---|---|---|
+| **Chosen: hash table, separate chaining** | O(1) average (chains stay short at load ≤ 0.75) | O(1) amortised (doubling rehash) | O(1) average | buckets + one pair per key |
+| Alt. 1: list of (key, id) pairs | O(n) | O(1) | O(n) | smallest |
+| Alt. 2: sorted list + binary search | O(log n) | O(n) (shift) | O(n) (shift) | small |
+| Alt. 3: Python dict (version 3.3) | O(1) average, in C | O(1) amortised | O(1) | open addressing |
+
+Measured: with 59,450 keys (version 3.3) a dict lookup took 0.06 µs, binary
+search 0.6–0.8 µs and a list scan 1.6 ms. With the 35,653 keys of the version
+3.4 measurement, the hand-written table had load factor 0.54 and its longest
+chain held 6 keys; a lookup took about 4 µs against 0.05 µs for a dict. Python's
+dict uses the same idea in C, so it is about 80 times faster. The hand-written
+table was chosen anyway, at the owner's request, so that hashing, collision
+handling and rehashing are the project's own code; at a few hundred lookups per
+online search its cost is about 1 ms. The vocabulary (240,705 words, read for
+every word of every paper) keeps Python's dict, where the factor of 80 would
+show.
+
+## 2.5 LRU cache: hash map + doubly linked list (kept)
+
+**What it is.** `dsa/lru.py`. The hash map finds a key's node; the doubly linked
+list orders nodes from least to most recently used, with sentinel head and tail
+nodes. Used twice: for the papers in memory (evict the least recently used one
+when 20,000 are held) and for API answers (with an expiry time).
+
+```
+=== Example 3: keeping the most recently used papers (capacity 3)
+chosen   put A: list oldest->newest ['A']
+chosen   put B: list oldest->newest ['A', 'B']
+chosen   put C: list oldest->newest ['A', 'B', 'C']
+chosen   get A: list oldest->newest ['B', 'C', 'A']
+chosen   put D: list oldest->newest ['C', 'A', 'D']  evicted B
+         every step: 1 hash lookup + at most 4 pointer changes, O(1)
+alt. 1   array in recency order: same final order ['C', 'A', 'D'], but get/evict shift elements (5 moves here; O(n) per operation)
+alt. 2   min-heap of last-use times: evicts B as well, O(log n) per operation, but before the eviction it held 5 entries for 4 papers (stale entries stay until popped)
+```
+
+| | get / touch | put + evict | Space |
+|---|---|---|---|
+| **Chosen: hash map + doubly linked list** | O(1) | O(1) | map + one node per entry |
+| Alt. 1: array kept in recency order | O(n) (find, remove, append) | O(n) (remove the front) | one array |
+| Alt. 2: min-heap of last-use times (lazy deletion) | O(log n) | O(log n) amortised | grows with every touch until stale entries are popped |
+
+Measured with 20,000 entries: 0.7–1.1 µs per operation for `dsa/lru.py`; about
+100 µs per touch for the array. The heap with lazy deletion ran the benchmark in
+11–13 ms against 19–28 ms, but only because Python's `heapq` is written in C:
+it does more work per operation (O(log n)) and its memory grows with every touch.
+Python's `OrderedDict` (the same hash map + doubly linked list, in C) ran it in
+3.5–6.3 ms. A search does about 60 LRU operations (50 papers added, 10 shown), so
+even the fastest option would save under 0.1 ms per search. The hand-written
+structure stays: it is the syllabus doubly linked list doing a real job, at a
+cost too small to measure in a search.
+
+## 2.6 Array-based stack (kept)
+
+**What it is.** `dsa/stack.py`: push and pop at the end of one Python list
+(a dynamic array). Two stacks are used for boolean queries: one for operators
+in the shunting-yard conversion from infix to postfix, one for operand lists
+when evaluating the postfix expression.
+
+```
+=== Example 4: boolean query on a stack: deep AND (vision OR image) NOT survey
+         token deep    stack []
+         token AND     stack ['AND']
+         token (       stack ['AND', '(']
+         token vision  stack ['AND', '(']
+         token OR      stack ['AND', '(', 'OR']
+         token image   stack ['AND', '(', 'OR']
+         token )       stack ['AND']
+         token AND     stack ['AND']
+         token NOT     stack ['AND', 'NOT1']
+         token survey  stack ['AND', 'NOT1']
+         token end     stack []
+chosen   postfix: deep vision image OR AND survey NOT1 AND (10 tokens, each pushed and popped at most once: O(n))
+         array stack (dsa/stack.py): push/pop at the end of one array, no extra object per item
+alt. 1   linked-list stack: same O(1) push/pop, plus one node object (value + next pointer) per push
+alt. 2   recursive-descent parser: same O(n), but the stack is Python's call stack, so the
+         intermediate stack states (shown in the search trace) cannot be recorded
+```
+
+(The second `AND` is the implicit one the tokenizer inserts: "x NOT y" means
+"x AND NOT y". `NOT1` is NOT with one operand.)
+
+| | push / pop | Space | Notes |
+|---|---|---|---|
+| **Chosen: array stack** | O(1) amortised | one array | items next to each other in memory |
+| Alt. 1: linked-list stack | O(1) | one node object per item | no gain for a few dozen tokens |
+| Alt. 2: recursion (call stack) | O(1) per call | call frames | no explicit stack to show in the trace; recursion depth limit |
+
+The current choice is sound: the stack never holds more than a few dozen tokens,
+and the explicit stack is what lets the web page show each step.
+
+## 2.7 Sorted posting lists and the merge (kept)
+
+**What it is.** `dsa/merge.py`: `intersect` (AND), `union` (OR) and
+`difference` (AND NOT) walk two sorted lists with one pointer each.
+
+```
+=== Example 5: AND of two sorted posting lists
+chosen   merge pass: [4, 9], 5 comparisons (at most m + n), result already sorted
+alt. 1   nested loops: 16 comparisons (m * n), result [4, 9]
+alt. 2   hash set: 8 hash operations, result [4, 9] only after sorting again (a set has no order), plus a set object per list
+```
+
+| | AND / OR / NOT of lists of length m and n | Extra space | Output |
+|---|---|---|---|
+| **Chosen: two-pointer merge** | O(m + n) | the output only | sorted, ready for the next operator |
+| Alt. 1: nested loops | O(m · n) | the output only | sorted |
+| Alt. 2: hash sets | O(m + n) expected, + O(k log k) to sort the result | a set per operand | unordered |
+
+The posting lists are already sorted (section 2.1), so the merge needs no extra
+work and its output is sorted for the next operator on the stack. The current
+choice is sound.
+
+## 2.8 Merge sort (kept)
+
+**What it is.** `dsa/merge.py`, bottom-up merge sort (no recursion). It orders the
+candidate rows by score in `_rank_local`, and again by year or citations when the
+user asks.
+
+```
+=== Example 6: sorting results by year, newest first (rows already in relevance order)
+input     [('A', 2019), ('B', 2021), ('C', 2019), ('D', 2021)]
+chosen   merge sort: [('B', 2021), ('D', 2021), ('A', 2019), ('C', 2019)] (B before D and A before C, as in the relevance order: stable)
+alt. 1   quicksort: [('B', 2021), ('D', 2021), ('C', 2019), ('A', 2019)] (equal years swapped: not stable; O(n^2) worst case)
+alt. 2   heap sort: [('B', 2021), ('D', 2021), ('C', 2019), ('A', 2019)] (equal years reordered by the heap: not stable)
+```
+
+| | Time | Extra space | Stable |
+|---|---|---|---|
+| **Chosen: merge sort** | O(n log n) always | O(n) | yes |
+| Alt. 1: quicksort | O(n log n) average, O(n²) worst | O(log n) | no |
+| Alt. 2: heap sort | O(n log n) always | O(1) | no |
+
+Stability matters here: when results are sorted by year, papers from the same
+year must stay in relevance order, which quicksort and heap sort do not
+guarantee (example above: A was more relevant than C, and both alternatives put
+C first). Merge sort is also the one sort the project owner chose to keep. On
+400 rows it takes 0.85–1.6 ms (Python's built-in sort, also a stable
+merge-based sort, takes 0.04–0.09 ms, see Known limitations).
+
+## 2.9 Dynamic arrays (kept)
+
+**What it is.** `_Grow` in `engine/memindex.py`: a numpy buffer of fixed-width
+rows that doubles its capacity when full. It holds the 160-number embedding of
+each paper, its 13 field probabilities, its 4 metadata columns and its alive flag.
+
+```
+=== Example 8: appending 20 vector rows one at a time
+chosen   doubling array: capacity 16 -> [32], 16 rows copied in total (amortised O(1) each)
+alt. 1   exact-size array, new copy on every append: 190 rows copied (O(n) each, O(n^2) total)
+alt. 2   Python list of row lists: appends are cheap, but there is no single matrix to multiply,
+         so 'vectors @ query' becomes a Python loop over every paper
+```
+
+| | Append | Read all rows as one matrix | Space |
+|---|---|---|---|
+| **Chosen: doubling numpy buffer** | O(1) amortised | O(1) (a view) | up to 2× the rows held |
+| Alt. 1: exact-size array copied on each append | O(n) | O(1) | exact |
+| Alt. 2: Python list of rows | O(1) amortised | O(n) conversion before every vector search | a Python object per number |
+
+Measured: 2,000 single-row appends of 160 numbers took 2.8–3.1 ms with
+doubling and 128–139 ms with exact-size copies. The current choice is sound.
+
+## 2.10 Top-k candidate selection with a heap (changed in 3.4)
+
+**What it is.** The embeddings form one dense matrix; a vector search is one
+matrix-vector product (cosine similarity, because vectors have unit length).
+Then the 200 best scores are picked, both for the vector search
+(`PaperIndex.search_vectors`) and for BM25 (`top_k` in `engine/pipeline.py`).
+Since version 3.4 this uses `dsa/heap.py`: a binary min-heap in array form (the
+children of position i are 2i+1 and 2i+2) that holds the best k scores seen so
+far, with the weakest at the root. Each new score is compared with the root; if
+it is better it replaces the root and sinks to its place. Equal scores keep the
+smaller paper id, so the result does not depend on the order of the scores.
+
+```
+=== Example 9: the 3 best of 8 scores (size-k min-heap)
+scores    [0.2, 0.9, 0.1, 0.7, 0.4, 0.8, 0.3, 0.6]
+chosen   paper 0 (0.2): heap not full, push   heap [0.2]
+         paper 1 (0.9): heap not full, push   heap [0.2, 0.9]
+         paper 2 (0.1): heap not full, push   heap [0.1, 0.9, 0.2]
+         paper 3 (0.7): beats the root, replace heap [0.2, 0.9, 0.7]
+         paper 4 (0.4): beats the root, replace heap [0.4, 0.9, 0.7]
+         paper 5 (0.8): beats the root, replace heap [0.7, 0.9, 0.8]
+         paper 6 (0.3): not above root 0.7, dropped
+         paper 7 (0.6): not above root 0.7, dropped
+         best 3: papers [1, 3, 5]; 5 root comparisons, 3 sift-downs of at most log2 k levels: O(n log k), O(k) memory
+alt. 1   partial selection (numpy argpartition): [1, 3, 5] O(n) on average, but needs all n scores in one array
+alt. 2   full sort (argsort): [1, 5, 3] O(n log n), orders all 8 to keep 3
+```
+
+| | Time for top k of n | Extra space | Result |
+|---|---|---|---|
+| **Chosen: size-k min-heap** | O(n log k) | O(k) | the k best; ties: smaller id |
+| Alt. 1: partial selection (`np.argpartition`, version 3.3) | O(n) average, in C | O(n) | the k best; ties: arbitrary |
+| Alt. 2: full sort | O(n log n) | O(n) | all n in order |
+
+Measured, top 200 of 11,866 scores: 0.03 ms with `argpartition` and 3.3 ms with
+the Python heap (0.63–0.66 ms for a full sort of 20,000 in version 3.3). The heap
+does fewer comparisons than a sort, but every comparison is a Python step while
+`argpartition` runs in C. It runs twice per search, so it is the main reason a
+search from memory went from 14.6 ms to 20.9 ms. It was chosen at the owner's
+request, so the heap is the project's own code doing a real job. An approximate
+nearest-neighbour index (HNSW, IVF, KD-tree) was also considered: at 20,000 ×
+160 numbers (12 MB) the exact product is already about a millisecond, so it
+would add complexity and lose some results for no gain.
+
+## 2.11 Year-range filter with a binary search tree (added in 3.4)
+
+**What it is.** `dsa/bst.py`, `YearTree`: one node per publication year holding
+the set of papers of that year; earlier years in the left subtree, later years in
+the right. `PaperIndex` inserts each new paper, removes evicted ones, and builds
+a balanced tree (median year at the root) at every compaction. A filter "from
+2018 to 2020" is an in-order traversal that skips every subtree that cannot hold
+years in the range (`range(lo, hi)`), written with an explicit stack instead of
+recursion.
+
+```
+=== Example 11: papers from 2018 to 2020 (binary search tree keyed by year)
+insert    [('A', 2019), ('B', 2015), ('C', 2021), ('D', 2017), ('E', 2020), ('F', 2023), ('G', 2019), ('H', 2012)]
+chosen   tree of 7 years, height 3; range(2018, 2020) visits years [2015, 2017, 2019, 2020, 2021] -> ['A', 'G', 'E']
+         (5 of 7 nodes: subtrees outside the range are skipped; O(h + years visited + results))
+alt. 1   check every paper's year: 8 comparisons (O(n)) -> ['A', 'E', 'G']
+alt. 2   sorted array + binary search: rows 3..5 -> ['A', 'G', 'E'] in O(log n), but adding a 2016 paper shifts 6 rows
+```
+
+| | Range query | Add a paper | Remove a paper | Space |
+|---|---|---|---|---|
+| **Chosen: BST keyed by year** | O(h + years visited + results) | O(h) | O(h) | one node per year + the ids |
+| Alt. 1: check every paper's year (version 3.3, vectorised with numpy) | O(n) | O(1) | O(1) | one number per paper |
+| Alt. 2: sorted array of (year, id) + binary search | O(log n + results) | O(n) (shift) | O(n) (shift) | one pair per paper |
+
+h is the tree's height: there are only a few dozen to a few hundred distinct
+years, so h stays small (6 for the 12 years of the measurement; the balanced
+rebuild keeps it near log2 of the number of years). Measured on 11,866 papers:
+0.14 ms per range query with the tree, 0.03 ms for numpy comparing every year at
+C speed. The tree does far fewer comparisons (it visits years, not papers) but in
+Python; it was added so a tree does the filter, at a cost of about 0.1 ms per
+filtered search. The sorted array would answer ranges as fast but pays a shift
+for every paper added.
+
+## 2.12 Citation graph and breadth-first search (added in 3.4)
+
+**What it is.** OpenAlex returns each paper's reference list. `PaperIndex`
+keeps it with the paper (the paper's outgoing edges) and records each reference
+in a hash map from a work number to the papers in memory that cite it (incoming
+edges). Together they form the citation graph as adjacency lists.
+`PaperIndex.related` runs `dsa/graph.py`'s breadth-first search from one paper,
+at most 2 links away and at most 8 papers. The frontier is a circular queue
+(`dsa/queue.py`: an array reused in a circle, enqueue at the rear and dequeue at
+the front in O(1)), and a set of visited papers makes sure each paper is listed
+once.
+
+```
+=== Example 12: related papers by citation links (BFS with a circular queue)
+cites     {'P': ['A', 'B'], 'A': ['C'], 'B': ['C', 'D'], 'C': ['E'], 'D': [], 'E': [], 'F': ['P']}
+chosen   dequeue P (hop 0): queue ['A', 'B', 'F']
+         dequeue A (hop 1): queue ['B', 'F', 'C']
+         dequeue B (hop 1): queue ['F', 'C', 'D']
+         dequeue F (hop 1): queue ['C', 'D']
+         dequeue C (hop 2): queue ['D']
+         dequeue D (hop 2): queue []
+         BFS order (paper, hops): [('A', 1), ('B', 1), ('F', 1), ('C', 2), ('D', 2)] - every 1-hop paper before any 2-hop one
+alt. 1   depth-first search (stack) order, with path length: [('A', 1), ('C', 2), ('E', 3), ('B', 3), ('D', 4), ('F', 1)]
+         it follows one chain as deep as it goes: B, which P cites, is reached by a 3-link path, and F, which cites P, comes last
+alt. 2   adjacency matrix: 7x7 = 49 cells for 7 citations; finding a paper's neighbours reads a whole row (O(n))
+```
+
+| | Neighbours of a paper | Whole search | Space |
+|---|---|---|---|
+| **Chosen: adjacency lists + BFS** | O(degree) | O(V + E) of the part reached, closest papers first | O(V + E) |
+| Alt. 1: depth-first search (stack) on the same lists | O(degree) | O(V + E), but deep chains come before direct neighbours | O(V + E) |
+| Alt. 2: adjacency matrix | O(n) (a whole row) | O(V²) | n² cells: 400 million for 20,000 papers |
+
+And for the queue inside BFS:
+
+| | Enqueue | Dequeue | Notes |
+|---|---|---|---|
+| **Chosen: circular queue on an array** | O(1) amortised (doubles when full) | O(1) | no shifting; the array is reused |
+| Alt. 1: Python list with `pop(0)` | O(1) | O(n) (every item shifts left) | simplest |
+| Alt. 2: linked-list queue | O(1) | O(1) | one node object per item |
+
+BFS was chosen over DFS because related papers should come closest first: BFS
+lists every paper one link away before any paper two links away (example above).
+Measured live on 377 papers fetched from OpenAlex for eight graph learning
+topics (16,525 references, 1,211 of them between papers in memory): finding the
+related papers took 0.14 ms median and 0.75 ms at most per paper; 59 of the 377
+papers had no link to another paper in memory.
+
+## Verification of the changes
+
+1. **Unit tests.** `python -m unittest`: **75 tests, all pass**. Tests added for
+   the version 3.3 changes:
+   * `test_appended_postings_equal_a_full_rebuild` (tests/test_index.py): after
+     every batch, through evictions and two compactions, the merged index gives
+     exactly the same posting lists, BM25 scores and word counts as an index
+     rebuilt from scratch.
+   * `test_hash_map_and_binary_search_agree` (tests/test_index.py): the hash map
+     returns the same id as binary search for every 7th vocabulary word and for
+     missing words.
+   * The existing `test_packed_scoring_equals_walking_each_tree`
+     (tests/test_ml.py) checks the new tree walk against walking each tree
+     separately.
+
+   Tests added for version 3.4 (tests/test_dsa.py unless noted):
+   * heap: `test_heap_order_and_pop`, and `test_top_k_equals_sorting` (with many
+     equal scores, the heap returns the same papers as a full sort);
+   * hash table: `test_collisions_in_one_bucket` (every key forced into one
+     bucket), `test_rehash_keeps_load_low` (1,000 keys), `test_matches_a_dict`
+     (5,000 random inserts, updates and deletes compared with a dict after each);
+   * circular queue: `test_fifo_and_wraparound`;
+   * BFS: `test_level_order_and_depth`, and `test_hops_are_shortest_paths`
+     (on a random graph, the hops BFS reports equal shortest path lengths);
+   * year tree: `test_range_matches_a_scan` (800 inserts, 200 removals),
+     `test_balanced_build` (a sorted insert order gives height 127, the balanced
+     build 7, same answers);
+   * in the index: `test_year_tree_follows_adds_evictions_and_compaction` and
+     `test_citation_graph_survives_eviction_and_compaction` (tests/test_index.py);
+   * in the API: `test_related_papers_follow_citation_links` (tests/test_app.py):
+     a chain of five papers gives the related papers in BFS order.
+2. **Same results as before, on real data.** The old and new code were run on
+   the same sequence: 12,000 real papers added in batches of 50 with a memory
+   limit of 3,000 (so papers were evicted and the index compacted), and searches
+   with topics, boolean queries, a prefix query, an exclusion, an author filter,
+   sorting by year and (since version 3.4) three year filters. For the version
+   3.3 changes all outputs compared equal byte for byte. For version 3.4, 479 of
+   480 search outputs were identical; the one difference was a search with an
+   author filter where two papers tied exactly at the 200th BM25 place (both
+   4.268903). The heap kept the paper with the smaller id, numpy an arbitrary
+   one, so the candidate count changed from 298 to 297. The first page of results
+   was the same.
+3. **Live.** With an OpenAlex key, searches fetched papers with their reference
+   lists, the year filter returned only papers from the chosen years, and the
+   paper drawer in the browser listed related papers (for "Stability Properties
+   of Graph Neural Networks": two papers it cites, then six papers two links
+   away); clicking one opened it.
+4. **Speed.** Measured as described above; the numbers are in the summary table.
+
+To repeat the examples: `python scripts/ds_examples.py` (or one example:
+`python scripts/ds_examples.py 6`).
