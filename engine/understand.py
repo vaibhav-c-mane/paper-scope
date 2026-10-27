@@ -21,6 +21,20 @@ the third treats "recent" as a topic word. This module turns each query into:
   looks for papers with those words in their title, most cited first (an exact
   title such as "attention is all you need" is otherwise buried under the many
   papers that reuse it).
+* `relaxed`: for a long query, the same query without the words least related
+  to the rest of it, sent as one more keyword search. OpenAlex's keyword search
+  wants every word: "How does reinforcement learning improve autonomous vehicle
+  navigation at night?" misses "Optimizing Autonomous Vehicle Navigation Through
+  Reinforcement Learning in Dynamic Urban Environments", which never says
+  "night" or "improve"; without those two words it is found.
+
+How related a word is to the rest of the query (its centrality) is the cosine
+between its own LSA direction (engine/lexicon.py, learned from 600,013 papers)
+and the mean direction of the other words: "autonomous" 0.66, "vehicle" 0.40,
+"night" 0.08, "improve" -0.02. Words below RELAX_BELOW are dropped, the least
+related first, picked with the size-k heap of dsa/heap.py, never more than a
+third of the words. The full query is still searched as well, so a dropped word
+that mattered ("phones") costs nothing: the relaxed search only adds papers.
 
 Spelling correction is a small statistical model learned from the 600,013 real
 papers behind the Lexicon (engine/lexicon.py), the noisy-channel corrector of
@@ -39,7 +53,10 @@ shown in the search trace, and undone by searching with exact=True.
 """
 import re
 
-from engine.text import normalize
+import numpy as np
+
+from dsa.heap import top_k
+from engine.text import normalize, terms
 
 _LETTERS = "abcdefghijklmnopqrstuvwxyz"
 
@@ -66,6 +83,8 @@ RARE_DF = 10            # a word used by fewer papers than this may be a typo
 GAIN = 50               # ... and is corrected only to a word used by 50x as many papers
 RECENT_YEARS = 5        # "recent" = published in the last 5 calendar years
 MIN_DOCS = 10_000       # spelling is corrected only with a corpus at least this large
+RELAX_MIN_WORDS = 5     # a query needs this many topic words to get a fewer-words search
+RELAX_BELOW = 0.1       # ... which drops words whose centrality is below this
 
 
 def _edits1(w):
@@ -117,6 +136,38 @@ class QueryUnderstanding:
         if not 5 <= len(w) <= 9:            # two edits of a short word reach almost any short word
             return ()
         return (e2 for e1 in _edits1(w) for e2 in _edits1(e1))
+
+    # ---------------------------------------------------------------- relaxation
+    def centrality(self, words):
+        """{word: cosine between the word's LSA direction and the mean of the other words'}.
+        Words without a vector (rare, or not learned) are left out: they are never dropped."""
+        vec = getattr(self.lex, "word_vector", None)
+        vs = {w: v for w, v in ((w, vec(w)) for w in words) if v is not None} if vec else {}
+        out = {}
+        for w, v in vs.items():
+            rest = [u for o, u in vs.items() if o != w]
+            if rest:
+                m = np.mean(rest, axis=0)
+                n = float(np.linalg.norm(m))
+                out[w] = float(v @ m / n) if n else 0.0
+        return out
+
+    def relax(self, text):
+        """(the query without its least related words, the dropped words) or (None, [])."""
+        tokens = text.split()
+        words = list(dict.fromkeys(t for tok in tokens for t in terms(tok)))
+        if len(words) < RELAX_MIN_WORDS:
+            return None, []
+        c = self.centrality(words)
+        weak = [w for w in words if w in c and c[w] < RELAX_BELOW]
+        k = min(len(weak), len(words) // 3)
+        # the k least related words: top k of the negated centralities (size-k min-heap)
+        idx = top_k([-c[w] for w in weak], list(range(len(weak))), k)
+        dropped = {weak[i] for i in idx}
+        if not dropped:
+            return None, []
+        kept = [tok for tok in tokens if any(t not in dropped for t in terms(tok))]
+        return " ".join(re.sub(r"[?!.,;:]+$", "", tok) for tok in kept), sorted(dropped, key=words.index)
 
     # ---------------------------------------------------------------- the whole query
     def understand(self, raw, now_year):
@@ -187,5 +238,6 @@ class QueryUnderstanding:
         content = [w for w in keep if normalize(w)]
         out["semantic"] = out["kind"] != "keywords" or len(content) >= 5 or bool(out["corrections"])
         out["title"] = out["kind"] == "keywords" and len(keep) >= 3
+        out["relaxed"], out["relax_dropped"] = self.relax(out["query"])
         out["changed"] = out["query"].lower() != out["original"].lower() or out["recent_from"] is not None
         return out

@@ -1,15 +1,17 @@
 # PaperScope: project documentation
 
 This document describes PaperScope as the code in this folder implements it
-(version 3.6, 27 October 2026). Part 1 explains what the project does and how it
-is built, including a plain explanation of the learned ranker (section 11) and
-of how everyday queries are understood (section 12, new in 3.5) and how the
-match shown next to each result is computed (section 13, new in 3.6).
-Part 2 justifies each core data structure, compares it with alternatives on
-small worked examples, records the three changes made after measuring them, and
-describes the four hand-written structures added in version 3.4 so that every
-syllabus unit does real work in the project: a heap, a hash table, a binary
-search tree, and breadth-first search with a circular queue.
+(version 4.0, 27 October 2026). Part 1 explains what the project does and how it
+is built, including a plain explanation of the learned ranker (section 11), of
+how everyday queries are understood (section 12, new in 3.5), how the match
+shown next to each result is computed (section 13, new in 3.6), and how long
+queries, related papers and title suggestions work (sections 14 and 15, new in
+4.0). Part 2 justifies each core data structure, compares it with alternatives
+on small worked examples, records the three changes made after measuring them,
+and describes the hand-written structures added so that every syllabus unit
+does real work in the project: a heap, a hash table, a binary search tree and
+breadth-first search with a circular queue (3.4); an indexed priority queue
+with Dijkstra's shortest paths, and a radix trie (4.0).
 
 Every number in this file was measured on the cloud machine used for the live
 tests, unless the text says otherwise. File references point to the code, so
@@ -75,6 +77,7 @@ One search follows this path (`engine/pipeline.py`, `SearchPipeline.rank` and `s
 query text
   │ QueryUnderstanding.understand (not for identifiers, boolean queries or exact=1):
   │   spelling, request words dropped, "recent" → year filter, by meaning? by title?
+  │   a fewer-words version without the least related words (long queries)
   ▼
   │ parse_query: identifier? boolean operators? words, -exclusions, prefix*
   ▼
@@ -88,8 +91,9 @@ candidates from memory:  BM25 top 200 (inverted index)  ∪  nearest 200 vectors
 fewer than 3 candidates with relevance ≥ threshold (0.396 for the shipped model)?
   │ yes ─► ScholarlyClient.search (≤ 50 papers)            ┐ in parallel
   │       + OpenAlex by meaning (a sentence, ≤ 50 papers)    │
+  │       + OpenAlex with fewer words (long query, ≤ 50)     │
   │       + OpenAlex by title, most cited (a phrase, ≤ 25)   ┘
-  │       ─► PaperIndex.add ─► rank again ─► fuse with the by-meaning order
+  │       ─► PaperIndex.add ─► rank again ─► fuse with the by-meaning and fewer-words orders
   │       ─► a well-cited paper whose title is the query goes first
   ▼
 rows sorted by score with merge sort (re-sorted by year or citations on request)
@@ -115,7 +119,9 @@ paper-search/
 │   ├── hashtable.py        hash table: polynomial hash, separate chaining, rehashing
 │   ├── bst.py              binary search tree keyed by year; range queries
 │   ├── queue.py            circular queue on an array
-│   └── graph.py            breadth-first search over adjacency lists
+│   ├── priority_queue.py   indexed min-heap: priorities with decrease-key
+│   ├── graph.py            breadth-first search and Dijkstra's shortest paths over adjacency lists
+│   └── trie.py             radix trie (compressed prefix tree)
 ├── engine/                 the search engine
 │   ├── pipeline.py         SearchPipeline: the whole search flow
 │   ├── understand.py       QueryUnderstanding: spelling, request words, recency, query kind
@@ -141,7 +147,7 @@ paper-search/
 │   ├── ds_examples.py      reproduces the worked examples in Part 2 of this document
 │   └── check_queries.py    26 everyday queries against live OpenAlex (search quality, section 12)
 ├── static/                 index.html, app.js, style.css (the web page)
-├── tests/                  89 unit tests, no network needed (fake HTTP transport)
+├── tests/                  97 unit tests, no network needed (fake HTTP transport)
 └── docs/                   DESIGN.md, PROJECT.md (this file), screenshots
 ```
 
@@ -183,7 +189,10 @@ paper-search/
 | Sparse matrices (CSR) | `engine/lexicon.py` | TF-IDF of new papers and queries |
 | Token bucket | `engine/sources.py` | Rate limits per API |
 | Citation graph as adjacency lists (each paper's reference list, plus a hash map from a work to the papers citing it) | `engine/memindex.py` (`citers`, `neighbours`); `ml/dataset.py` (`Pool.refs`) | Related papers; training labels (which papers a seed paper cites) |
-| Circular queue + breadth-first search | `dsa/queue.py`, `dsa/graph.py` | Related papers, nearest by citation links first |
+| Circular queue + breadth-first search | `dsa/queue.py`, `dsa/graph.py` | Citation links of a paper, nearest first |
+| Weighted graph (citation, related-work and similarity edges) + indexed priority queue + Dijkstra | `engine/memindex.py` (`weighted_neighbours`, `related`), `dsa/priority_queue.py`, `dsa/graph.py` | Related papers, closest first by shortest path |
+| Radix trie keyed by normalised title | `dsa/trie.py`, used by `engine/memindex.py` (`titles`) | Title suggestions while typing |
+| Binary search in each paper's sorted word ids | `engine/pipeline.py` (`_missing_words`) | "Missing: night" under a result |
 
 ## 6. How the components interact
 
@@ -317,6 +326,16 @@ $0.001 of a $1 daily allowance.
   cited paper in its top 100, so a useful online training set needs thousands of
   queries over several days of API budget.
 * **Session memory only.** Everything fetched is forgotten when the app stops.
+* **More requests per new topic.** A long query sends up to four OpenAlex
+  requests (keywords, by meaning, fewer words, by title), and opening a paper
+  for the first time three more (its record, its references and related works,
+  its most cited citing works). With a key each request costs $0.001 of the $1
+  daily allowance; repeats come from the cache.
+* **Fewer words is a guess.** The words dropped are those least related in
+  meaning to the rest of the query, which is sometimes a word that matters
+  ("phones" in "make neural networks smaller so they run on phones"). The full
+  query is searched too and the fewer-words order counts half in the fusion, so
+  this costs little, but it cannot find what both searches miss.
 * **Understanding costs time and budget.** A new topic written as a sentence or
   a phrase sends up to two more OpenAlex requests, and the median search with
   fresh memory went from 1.0 s to 1.7 s (search by meaning takes 1.3–2 s). The
@@ -356,15 +375,17 @@ $0.001 of a $1 daily allowance.
 The rule was to implement a syllabus topic only where the search engine has a
 real job for it. Version 3.4 added the heap, the hand-written hash table, the
 binary search tree, the circular queue and BFS, so every unit now has at least
-one structure doing work in a search.
+one structure doing work in a search. Version 4.0 added the indexed priority
+queue with Dijkstra's shortest paths (related papers) and the radix trie (title
+suggestions), each for a job the search did badly or not at all before.
 
 | Unit | Used | Where and why | Not used, and why |
 |---|---|---|---|
-| 1 Arrays, searching, sorting | Arrays and dynamic arrays; sparse matrix (CSC/CSR); time and space complexity; binary search; merge sort; heap (array form) | Every index structure is an array; posting lists are a sparse term × paper matrix; binary search over the sorted vocabulary gives prefix ranges; merge sort orders results stably; a size-k min-heap picks the 200 best candidates | Linear, indexed, Fibonacci search (no unsorted or indexed-sequential data to search); bubble, selection, insertion, quick, radix, shell, bucket sort and heap sort (one stable O(n log n) sort is enough, and heap sort is not stable, see 2.8); address calculation (numpy does it) |
+| 1 Arrays, searching, sorting | Arrays and dynamic arrays; sparse matrix (CSC/CSR); time and space complexity; binary search; merge sort; heap (array form) | Every index structure is an array; posting lists are a sparse term × paper matrix; binary search over the sorted vocabulary gives prefix ranges, and in each paper's sorted word ids finds the query words it misses; merge sort orders results stably; a size-k min-heap picks the 200 best candidates and the words a long query can drop | Linear, indexed, Fibonacci search (no unsorted or indexed-sequential data to search); bubble, selection, insertion, quick, radix, shell, bucket sort and heap sort (one stable O(n log n) sort is enough, and heap sort is not stable, see 2.8); address calculation (numpy does it) |
 | 2 Linked lists | Doubly linked list; dynamic allocation; vectors | The LRU order (O(1) move-to-end and remove); `_Grow` is a vector that doubles | Singly, circular and generalized lists: no job for them in the search |
-| 3 Stacks and queues | Array-based stack; infix → postfix; postfix evaluation; circular queue | Boolean queries use two stacks; the BFS for related papers keeps its frontier in a circular queue | Linked-list stack (no advantage, see 2.6); deque, priority queue as a separate type, Josephus: no job in the search |
-| 4 Trees | Binary search tree (insert, delete, range search by pruned in-order traversal); binary trees in array representation; non-recursive traversal | The year tree answers year-range filters; the ranker's 153 regression trees are stored as arrays and walked iteratively | Threaded trees, general-tree conversion, AVL or red-black balancing (the year tree has a few hundred nodes at most and is rebuilt balanced at every compaction) |
-| 5 Graphs | Adjacency lists; breadth-first search | Related papers: BFS over the citation graph of the papers in memory; the same graph gives training labels in `ml/dataset.py` | DFS (its order is not "closest first", see 2.12); spanning trees, shortest weighted paths (citation links have no weights) |
+| 3 Stacks and queues | Array-based stack; infix → postfix; postfix evaluation; circular queue; priority queue (indexed, with decrease-key) | Boolean queries use two stacks; the BFS for citation links keeps its frontier in a circular queue; Dijkstra for related papers keeps its frontier in the priority queue; the radix trie is walked with a stack | Linked-list stack (no advantage, see 2.6); deque, Josephus: no job in the search |
+| 4 Trees | Binary search tree (insert, delete, range search by pruned in-order traversal); binary trees in array representation; non-recursive traversal; trie (radix, with insert, delete and prefix search) | The year tree answers year-range filters; the ranker's 153 regression trees are stored as arrays and walked iteratively; a radix trie (a general tree whose edges carry substrings) suggests titles | Threaded trees, general-tree conversion, AVL or red-black balancing (the year tree has a few hundred nodes at most and is rebuilt balanced at every compaction) |
+| 5 Graphs | Adjacency lists; breadth-first search; weighted graph; Dijkstra's shortest paths | Citation links: BFS over the citation graph of the papers in memory; related papers: Dijkstra over citation, related-work and similarity edges weighted by how different two papers are (2.13); the citation graph also gives training labels in `ml/dataset.py` | DFS (its order is not "closest first", see 2.12); spanning trees (no job: the drawer needs the papers nearest one paper, not a tree joining all of them) |
 | 6 Hashing | Hash function (polynomial rolling hash); collision resolution by separate chaining; load factor and rehashing | The identity-key table that merges duplicate papers is written by hand (`dsa/hashtable.py`); the vocabulary, the LRU map and the API cache use Python's dict | Open addressing written by hand (separate chaining is simpler to delete from); a hand-written table for the vocabulary (240,705 words: Python's dict is about 80 times faster there and the vocabulary is read for every word of every paper) |
 
 ## 11. How the learned ranker works, step by step
@@ -535,6 +556,86 @@ section 12 the match separates right from wrong titles better than the old bar
 (AUC 0.71 against 0.64), but those patterns miss many right papers, so this is
 only a sanity check. The lowest query, "self-driving cars seeing pedestrians at
 night", averages 35%: its papers cover only some of the words.
+
+## 14. Long queries: fewer words, and missing words (version 4.0)
+
+**The problem.** "How does reinforcement learning improve autonomous vehicle
+navigation at night?" did not find "Optimizing Autonomous Vehicle Navigation
+Through Reinforcement Learning in Dynamic Urban Environments" (World Electric
+Vehicle Journal, 2025, 6 citations), which a web search lists for that question.
+OpenAlex has it, but its keyword search wants every word: with "night" and
+"improve" it matches 2,376 works and the paper is not among them; without those
+two words it matches 35,019 and the paper is 19th. It is not in OpenAlex's
+by-meaning top 50 either.
+
+**What runs.** `QueryUnderstanding.relax` (`engine/understand.py`):
+
+1. For a query with at least 5 topic words, each word gets a centrality: the
+   cosine between its own direction in the LSA space and the mean direction of
+   the other words (`Lexicon.word_vector`; the directions were learned from the
+   600,013 lexicon papers). For this query: autonomous 0.66, reinforcement 0.40,
+   vehicle 0.40, navigation 0.38, learning 0.20, night 0.08, improve −0.02.
+2. Words below 0.1 may be dropped, the least related first, at most a third of
+   the words; the k least related are picked with the size-k heap of
+   `dsa/heap.py`. Here: "improve" and "night".
+3. The fewer-words query ("reinforcement learning autonomous vehicle
+   navigation") is one more OpenAlex keyword search, run in parallel with the
+   others, and its order is fused in at weight 0.5 (the by-meaning order counts
+   1). Weight 1 lifted this paper further but cut "make neural networks smaller
+   so they run on phones" from 7 to 2 right titles in the top 10, because its
+   fewer-words version drops "phones"; 0.5 left the other 26 queries as they
+   were.
+
+Every result also says which query words it does not contain ("Missing:
+improve night"), so a paper that skips a word reads as a partial match rather
+than a wrong one. A paper's word ids are kept sorted in the forward index, so
+each word is one binary search (`np.searchsorted`), O(log n).
+
+**Measured result** (live, fresh memory per query, 27 October 2026):
+
+| | before (3.6) | now (4.0) |
+|---|---|---|
+| that paper, sorted by relevance | not found | 38th of 135 (14th by newest) |
+| "reinforcement learning for autonomous vehicle navigation in urban environments" | | 2nd |
+| 27 check queries: right titles in the top 10 | 74% (`--exact`) | 81% |
+| 27 check queries: first result right | 24 (`--exact`) | 26 |
+| median time per new query | 1.0 s (`--exact`) | 1.8 s |
+
+The paper stays outside the first page for the question as asked because about
+35 papers match more of it (several are about driving at night) or are far more
+cited; sorted by most cited, a 2025 paper with 6 citations comes late whatever
+the query.
+
+## 15. Related papers and title suggestions (version 4.0)
+
+**Related papers.** Until 3.6 the drawer listed papers joined to the opened one
+by citations, found by BFS among the papers in memory; a paper whose references
+had not been fetched had none. Now:
+
+1. The first time a paper is opened, `ScholarlyClient.neighbourhood` fetches the
+   papers around it from OpenAlex: its record (references and OpenAlex's
+   "related works"), those works (one batch of at most 50), and its 25 most
+   cited citing works. Three requests, cached for a week.
+2. `PaperIndex.weighted_neighbours` gives each paper's edges: the papers it
+   cites, that cite it, that OpenAlex lists as related, and its 5 nearest by
+   meaning. An edge's length is how different the two papers are, 1 − cosine of
+   their vectors (at least 0.02), halved for a citation and multiplied by 0.6
+   for a related work.
+3. `dsa/graph.py`'s `dijkstra` lists the 8 papers with the shortest paths from
+   the opened one, using the indexed priority queue of `dsa/priority_queue.py`
+   (2.13). The drawer shows each one's closeness (e^−distance), the link that
+   reached it, and the paper it was reached through.
+
+The citation links (BFS, 2.12) are still shown under them. Measured on 1,206
+papers in memory: 3.8 ms median per opened paper (6.4 ms at most), after the
+first opening's fetch (about 1.5 s).
+
+**Title suggestions.** While you type, titles of papers in memory that start
+with the text are suggested under the word suggestions, most cited first, and
+clicking one opens the paper. The titles live in a radix trie (2.14), updated
+when papers are added, evicted or renumbered. On the same 1,206 papers (82,767
+title characters) the trie has 1,865 nodes, and a suggestion takes 0.10 ms
+median.
 
 ---
 
@@ -1046,6 +1147,77 @@ Measured live on 377 papers fetched from OpenAlex for eight graph learning
 topics (16,525 references, 1,211 of them between papers in memory): finding the
 related papers took 0.14 ms median and 0.75 ms at most per paper; 59 of the 377
 papers had no link to another paper in memory.
+
+## 2.13 Indexed priority queue and Dijkstra's shortest paths (added in 4.0)
+
+**What it is.** `dsa/priority_queue.py` is a binary min-heap of (priority, key)
+pairs in an array, plus a hash map from each key to its position in the array.
+Every sift updates the map, so a key is found in O(1) and its priority can be
+lowered in place ("decrease-key", O(log n)). `dsa/graph.py`'s `dijkstra` keeps
+the unsettled papers in it, with the shortest distance found so far as the
+priority: pop the closest paper, settle it, and for each edge lower the
+neighbour's distance if the path through the settled paper is shorter.
+
+```
+=== Example 13: related papers by shortest paths (Dijkstra with an indexed priority queue)
+edges     A-B 1, A-C 4, B-C 1, B-D 5, C-D 1
+chosen   pop A 0: B 1, C 4
+         pop B 1: C lowered 4 -> 2, D 6
+         pop C 2: D lowered 6 -> 3
+         pop D 3: nothing to lower
+         order (paper, distance): [('B', 1.0), ('C', 2.0), ('D', 3.0)] - C through B beats the direct edge
+alt. 1   BFS ignores lengths (paper, links): [('B', 1), ('C', 1), ('D', 2)] - C (length 4) ranks with B (length 1)
+alt. 2   heap without decrease-key: one entry per improvement, stale ones skipped when popped; up to E = 5 entries instead of V = 4
+```
+
+| | Closest first | Cost | Space |
+|---|---|---|---|
+| **Chosen: Dijkstra with an indexed priority queue** | by total length | O((V + E) log V) for the part reached, stops after 8 papers | O(V) queue |
+| Alt. 1: BFS (2.12) | by number of links only | O(V + E) | O(V) queue |
+| Alt. 2: Dijkstra with a plain heap and stale entries | by total length | O((V + E) log E) | O(E) heap |
+| Alt. 3: sort every paper by similarity to the opened one | by direct similarity only: misses a paper reached through a citation | O(n log n) per paper | O(n) |
+
+Why: similarity alone (alt. 3) misses papers that are close through a chain
+(a paper cited by a close neighbour), and BFS (alt. 1) treats a weak "similar"
+link like a citation. The indexed queue keeps one entry per paper, which keeps
+the queue small when a paper is reached by many edges (citations plus
+similarity).
+
+## 2.14 Radix trie for title suggestions (added in 4.0)
+
+**What it is.** `dsa/trie.py` stores strings along paths from the root, with
+each chain of single-child nodes merged into one edge labelled by a substring.
+Insert walks the key and splits an edge where the key leaves it; remove takes
+the value off and merges a node left with one child back into its edge;
+`with_prefix` walks to the prefix (which may end inside an edge) and lists the
+keys below it depth first with the array stack of `dsa/stack.py`.
+
+```
+=== Example 14: title suggestions (radix trie)
+titles    "attention is all you need", "attention is not explanation", "attention mechanisms"
+chosen   radix trie, one edge per merged chain:
+         root
+           -"attention "->
+             -"is "->
+               -"all you need"-> [1]
+               -"not explanation"-> [2]
+             -"mechanisms"-> [3]
+         6 nodes; with_prefix('attention is') -> ['attention is all you need', 'attention is not explanation']
+alt. 1   plain trie: one node per character: 51 nodes for the same three titles
+alt. 2   sorted list + binary search for the prefix range: O(log n) to find, but every insert or eviction shifts the list (O(n))
+```
+
+| | Find titles with a prefix | Insert / remove | Nodes for 1,206 titles |
+|---|---|---|---|
+| **Chosen: radix trie** | O(prefix length + titles listed) | O(title length) | 1,865 |
+| Alt. 1: plain trie | O(prefix length + characters below) | O(title length) | up to 82,768 (one per distinct prefix; the titles have 82,767 characters) |
+| Alt. 2: sorted list + binary search | O(log n + titles listed) | O(n) shift | none (one list) |
+| Alt. 3: scan every title | O(n × prefix length) | O(1) | none |
+
+Why: titles arrive and leave all the time (every new search adds up to 175 papers,
+eviction removes the oldest), so a structure with cheap insert and remove fits
+better than a sorted list, and merging chains keeps the node count near the
+number of titles instead of the number of characters.
 
 ## Verification of the changes
 

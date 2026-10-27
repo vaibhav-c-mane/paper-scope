@@ -92,6 +92,7 @@ function renderResults(res) {
         <h3>${first + i + 1}. ${highlight(p.title, words)}</h3>
         <div class="meta">${esc(p.year || "?")} · ${esc((p.authors || "").slice(0, 110))}${p.venue ? " · <i>" + esc(p.venue) + "</i>" : ""}</div>
         <div class="abs">${highlight(p.abstract || "(no abstract)", words)}</div>
+        ${p.missing && p.missing.length ? `<div class="missing">Missing: ${p.missing.map((w) => `<s>${esc(w)}</s>`).join(" ")}</div>` : ""}
         <div class="chips">${chipsFor(p)}${matchChip(p)}</div>
       </article>`).join("") +
     `<div class="pager">${res.page > 1 ? `<button data-page="${res.page - 1}">‹ Previous</button>` : ""}` +
@@ -121,7 +122,8 @@ function renderTrace(t) {
     rows.push(`<h4>Understood as</h4><div>${how.map(esc).join(" · ")}` +
       (u.removed.length ? `<br>left out: <code>${esc(u.removed.join(" "))}</code>` : "") +
       (u.corrections.length ? `<br>spelling: ${u.corrections.map((c) => `<code>${esc(c.from)}</code> → <code>${esc(c.to)}</code>`).join(", ")}` : "") +
-      (u.recent_from ? `<br>recent: from ${u.recent_from}` : "") + "</div>");
+      (u.recent_from ? `<br>recent: from ${u.recent_from}` : "") +
+      (u.relaxed ? `<br>also searched with fewer words: <code>${esc(u.relaxed)}</code> (without ${u.relax_dropped.map((w) => `<code>${esc(w)}</code>`).join(", ")})` : "") + "</div>");
   }
   rows.push(`<h4>Query</h4><div>words: <code>${esc((t.query?.words || []).join(" ") || "–")}</code>` +
     (t.query?.excluded?.length ? `<br>excluded: <code>${esc(t.query.excluded.join(" "))}</code>` : "") + "</div>");
@@ -177,16 +179,22 @@ function matchChip(p) {
 
 // ------------------------------------------------------------------ paper drawer
 function relatedHTML(p) {
-  // breadth-first search over citation links between the papers in memory (dsa/graph.py)
-  if (!p.related || !p.related.length) {
-    return `<h4>Related papers</h4><p class="small muted">${p.citation_data
-      ? "None of the papers it cites or that cite it are in memory yet. Search its topic to bring more in."
-      : "No citation data for this paper (only OpenAlex lists references)."}</p>`;
-  }
+  // Dijkstra's shortest paths over citation, related-work and similarity links (dsa/graph.py)
+  const LINK = { cites: "cited by this paper", "cited by": "cites this paper", related: "listed as related by OpenAlex", similar: "similar topic" };
+  const rel = (p.related || []).map((r) =>
+    `<li><a href="#" data-key="${esc(r.key)}">${esc(r.title)}</a> <span class="small muted">${esc(r.year || "?")} · ` +
+    `${r.via ? `via “${esc(r.via)}”` : esc(LINK[r.link] || r.link)} · closeness ${Math.round(r.closeness * 100)}%</span></li>`).join("");
+  // breadth-first search over citation links only (dsa/graph.py)
   const how = (r) => r.hops === 1 ? (r.relation === "reference" ? "cited by this paper" : "cites this paper")
                                    : `2 links away, via “${esc(r.via)}”`;
-  return `<h4>Related papers <span class="small muted">by citation links</span></h4><ul class="related">${p.related.map((r) =>
-    `<li><a href="#" data-key="${esc(r.key)}">${esc(r.title)}</a> <span class="small muted">${esc(r.year || "?")} · ${how(r)}</span></li>`).join("")}</ul>`;
+  const cit = (p.citation_links || []).map((r) =>
+    `<li><a href="#" data-key="${esc(r.key)}">${esc(r.title)}</a> <span class="small muted">${esc(r.year || "?")} · ${how(r)}</span></li>`).join("");
+  return `<h4>Related papers <span class="small muted">closest first, by citations, OpenAlex and meaning</span></h4>` +
+    (rel ? `<ul class="related">${rel}</ul>` : `<p class="small muted">No related papers in memory yet. Search its topic to bring more in.</p>`) +
+    `<h4>Citation links <span class="small muted">papers it cites or that cite it</span></h4>` +
+    (cit ? `<ul class="related">${cit}</ul>` : `<p class="small muted">${p.citation_data
+      ? "None of the papers it cites or that cite it are in memory yet."
+      : "No citation data for this paper (only OpenAlex lists references)."}</p>`);
 }
 
 async function openPaper(key) {
@@ -221,13 +229,20 @@ function hideSuggest() { clearTimeout(sugTimer); sugSeq++; $("suggest").classLis
 function currentWord() { const parts = $("q").value.split(/\s+/); return parts[parts.length - 1]; }
 async function suggest() {
   const w = currentWord();
-  if (w.length < 2 || /^[A-Z]+$/.test(w)) return hideSuggest();
+  if ((w.length < 2 || /^[A-Z]+$/.test(w)) && $("q").value.trim().length < 3) return hideSuggest();
   const seq = ++sugSeq;
-  const { suggestions } = await getJSON("/api/suggest?prefix=" + encodeURIComponent(w)).catch(() => ({ suggestions: [] }));
+  const { suggestions, titles = [] } = await getJSON("/api/suggest?prefix=" + encodeURIComponent(w) + "&q=" + encodeURIComponent($("q").value))
+    .catch(() => ({ suggestions: [] }));
   if (seq !== sugSeq || document.activeElement !== $("q")) return;   // a search started meanwhile
-  if (!suggestions.length) return hideSuggest();
-  $("suggest").innerHTML = suggestions.map((s) => `<li>${esc(s)}</li>`).join("");
+  if (!suggestions.length && !titles.length) return hideSuggest();
+  // words (binary search in the vocabulary), then paper titles that start with the text (radix trie)
+  $("suggest").innerHTML = suggestions.slice(0, titles.length ? 4 : 8).map((s) => `<li>${esc(s)}</li>`).join("") +
+    titles.map((t) => `<li class="title" data-key="${esc(t.key)}">${esc(t.title)} <span class="small muted">${esc(t.year || "")}</span></li>`).join("");
   $("suggest").classList.remove("hidden");
+}
+function pickItem(li) {
+  if (li.dataset.key) { hideSuggest(); openPaper(li.dataset.key); return; }
+  pick(li.textContent);
 }
 function pick(word) {
   const parts = $("q").value.split(/(\s+)/);
@@ -249,10 +264,10 @@ $("q").addEventListener("keydown", (e) => {
     items.forEach((li, i) => li.classList.toggle("on", i === sugIndex));
   } else if (e.key === "Tab" || (e.key === "Enter" && sugIndex >= 0)) {
     e.preventDefault();
-    pick(items[Math.max(0, sugIndex)].textContent);
+    pickItem(items[Math.max(0, sugIndex)]);
   } else if (e.key === "Escape") hideSuggest();
 });
-$("suggest").addEventListener("mousedown", (e) => { if (e.target.tagName === "LI") { e.preventDefault(); pick(e.target.textContent); } });
+$("suggest").addEventListener("mousedown", (e) => { const li = e.target.closest("li"); if (li) { e.preventDefault(); pickItem(li); } });
 $("q").addEventListener("blur", () => setTimeout(hideSuggest, 100));
 $("examples").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-q]");

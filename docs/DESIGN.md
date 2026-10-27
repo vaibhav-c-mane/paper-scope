@@ -33,7 +33,9 @@ query ─► understand (spelling, request words, recency) ─► parse (stack) 
 | `engine/memindex.py`, `dsa/hashtable.py` | **Hash table**, hand-written (polynomial hash, separate chaining, rehash at load 0.75), from identity keys (arXiv id, DOI, OpenAlex id, normalised title) to papers | The same paper from two providers becomes one entry, and missing metadata is filled in from the second copy. About 80 times slower than Python's dict per lookup, a cost of about 1 ms per online search. See docs/PROJECT.md, section 2.4. |
 | `engine/pipeline.py`, `engine/memindex.py`, `dsa/heap.py` | **Binary min-heap** of size k | Keeps the 200 best BM25 scores and the 200 nearest vectors in O(n log k) without sorting all n. Slower than numpy's `argpartition` (3.3 ms against 0.03 ms for 11,866 papers), accepted to use the syllabus heap. See section 2.10. |
 | `engine/memindex.py`, `dsa/bst.py` | **Binary search tree keyed by year** | A year-range filter visits only the years in range, not every paper; insert and remove follow adds and evictions, and the tree is rebuilt balanced at each compaction. See section 2.11. |
-| `engine/memindex.py`, `dsa/graph.py`, `dsa/queue.py` | **Citation graph** (adjacency lists: reference lists + a map from a work to its citers) and **breadth-first search** with a **circular queue** | "Related papers" in the paper drawer: the papers in memory closest by citation links, one link away first, then two. See section 2.12. |
+| `engine/memindex.py`, `dsa/graph.py`, `dsa/queue.py` | **Citation graph** (adjacency lists: reference lists + a map from a work to its citers) and **breadth-first search** with a **circular queue** | "Citation links" in the paper drawer: the papers in memory closest by citation links, one link away first, then two. See section 2.12. |
+| `engine/memindex.py`, `dsa/graph.py`, `dsa/priority_queue.py` | **Weighted graph** (citation, related-work and similarity edges) and **Dijkstra's shortest paths** with an **indexed priority queue** (heap + position map, decrease-key) | "Related papers" in the paper drawer, closest first by total path length. See section 2.13. |
+| `engine/memindex.py`, `dsa/trie.py` | **Radix trie** of normalised titles | Title suggestions while typing; insert and remove as papers come and go. See section 2.14. |
 | `engine/lexicon.py` | **Sorted vocabulary + binary search**, plus a **hash map** word → id | A prefix query (`optim*`) or autocomplete is one contiguous range found with two binary searches; exact lookups (every word of every added paper) use the hash map, O(1) instead of O(log V). |
 | `engine/ranker.py` | **Binary trees in array form** (feature, threshold, left, right, value) | The 153 ranker trees are walked for all candidates at once, keeping only the (candidate, tree) pairs not yet at a leaf. See docs/PROJECT.md, section 2.3. |
 | `dsa/stack.py`, `dsa/expression.py` | **Array-based stack** | Shunting-yard (infix → postfix) and postfix evaluation of `AND / OR / NOT` queries. One stack implementation only: a Python list already gives O(1) push and pop at the end, so a linked-list stack would add nothing. |
@@ -124,6 +126,16 @@ in the title, meaning), not the ranker's calibrated probability, which is a
 citation probability and stays low for sentences and new papers. Sorting by
 newest or most cited sorts only the papers that match well. See
 docs/PROJECT.md, section 13.
+
+Version 4.0: a long query is also searched without the words least related in
+meaning to the rest (LSA centrality; "night" and "improve" in "How does
+reinforcement learning improve autonomous vehicle navigation at night?"), and
+each result names the query words it misses. Related papers are found by
+Dijkstra's shortest paths (indexed priority queue) over citation, OpenAlex
+related-work and similarity links, with the papers around an opened paper
+fetched from OpenAlex; citation links keep their BFS list. Titles in memory are
+kept in a radix trie for suggestions while typing. See docs/PROJECT.md,
+sections 14, 15, 2.13 and 2.14.
 
 ## What was removed, and why
 

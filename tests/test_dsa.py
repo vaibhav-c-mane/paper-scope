@@ -3,14 +3,16 @@ import random
 import unittest
 
 from dsa.bst import YearTree
-from dsa.graph import bfs
+from dsa.graph import bfs, dijkstra
 from dsa.hashtable import HashTable
 from dsa.heap import MinHeap, top_k
 from dsa.expression import evaluate_postfix, infix_to_postfix, tokenize_query
 from dsa.lru import LRUCache
 from dsa.merge import difference, intersect, merge, merge_sort, union
+from dsa.priority_queue import IndexedMinPQ
 from dsa.queue import CircularQueue, QueueUnderflow
 from dsa.stack import Stack, StackUnderflow
+from dsa.trie import RadixTrie
 
 
 class StackTests(unittest.TestCase):
@@ -194,6 +196,80 @@ class BFSTests(unittest.TestCase):
             frontier = nxt
         del dist[0]
         self.assertEqual(hops, dist)
+
+
+class PriorityQueueTests(unittest.TestCase):
+    def test_pop_order_and_decrease_key(self):
+        pq = IndexedMinPQ()
+        for k, p in [("a", 5), ("b", 3), ("c", 8), ("d", 1)]:
+            pq.push(k, p)
+        pq.decrease("c", 0)
+        self.assertIn("a", pq)
+        self.assertFalse(pq.push_or_decrease("a", 9))                  # not lower: unchanged
+        self.assertTrue(pq.push_or_decrease("a", 2))
+        self.assertEqual([pq.pop() for _ in range(4)], [("c", 0), ("d", 1), ("a", 2), ("b", 3)])
+        with self.assertRaises(ValueError):
+            pq.push("x", 1) or pq.decrease("x", 4)
+        with self.assertRaises(IndexError):
+            IndexedMinPQ().pop()
+
+    def test_matches_sorting_under_random_updates(self):
+        rng = random.Random(3)
+        pq, best = IndexedMinPQ(), {}
+        for _ in range(2000):
+            k, p = rng.randrange(300), rng.random()
+            if pq.push_or_decrease(k, p):
+                best[k] = p
+            else:
+                self.assertLessEqual(best[k], p)
+        out = [pq.pop() for _ in range(len(pq))]
+        self.assertEqual([p for _, p in out], sorted(best.values()))
+        self.assertEqual(dict(out), best)
+
+
+class DijkstraTests(unittest.TestCase):
+    def test_shortest_paths_beat_fewer_hops(self):
+        g = {"a": [("b", 1, "x"), ("c", 4, "y")], "b": [("c", 1, "z"), ("d", 5, "w")], "c": [("d", 1, "v")], "d": []}
+        got = dijkstra("a", lambda n: g[n])
+        self.assertEqual(got, [("b", 1, "a", "x"), ("c", 2, "b", "z"), ("d", 3, "c", "v")])   # c via b, not direct
+        self.assertEqual([n for n, *_ in dijkstra("a", lambda n: g[n], limit=2)], ["b", "c"])
+        # equal lengths: the same order as breadth-first search
+        chain = {i: [(i + 1, 1, "")] + ([(i - 1, 1, "")] if i else []) for i in range(6)}
+        chain[5] = [(4, 1, "")]
+        self.assertEqual([n for n, *_ in dijkstra(2, lambda n: chain[n])], [n for n, _, _ in bfs(2, lambda n: [m for m, _, _ in chain[n]], max_depth=9)])
+
+
+class RadixTrieTests(unittest.TestCase):
+    def test_prefix_listing_and_removal(self):
+        t = RadixTrie()
+        for i, k in enumerate(["attention is all you need", "attention is not explanation", "attention mechanisms",
+                               "graph attention networks"]):
+            t.insert(k, i)
+        self.assertEqual(sorted(k for k, _ in t.with_prefix("attention is")),
+                         ["attention is all you need", "attention is not explanation"])
+        self.assertEqual(t.with_prefix("attention mech"), [("attention mechanisms", {2})])
+        self.assertEqual(t.with_prefix("xyz"), [])
+        nodes = t.node_count()
+        self.assertTrue(t.remove("attention is not explanation", 1))
+        self.assertFalse(t.remove("attention is not explanation", 1))
+        self.assertLess(t.node_count(), nodes)                          # the branch point merged away
+        self.assertEqual(len(t), 3)
+
+    def test_matches_brute_force(self):
+        rng, t, ref = random.Random(1), RadixTrie(), {}
+        for _ in range(4000):
+            k, v = "".join(rng.choice("ab ") for _ in range(rng.randint(1, 6))), rng.randint(0, 3)
+            if rng.random() < 0.6:
+                t.insert(k, v)
+                ref.setdefault(k, set()).add(v)
+            elif t.remove(k, v):
+                ref[k].discard(v)
+                if not ref[k]:
+                    del ref[k]
+            p = "".join(rng.choice("ab ") for _ in range(rng.randint(0, 3)))
+            self.assertEqual(dict(t.with_prefix(p)), {k: v for k, v in ref.items() if k.startswith(p)})
+        # far fewer nodes than characters: single-child chains are merged
+        self.assertLess(t.node_count(), 2 * len(ref) + 2)
 
 
 class YearTreeTests(unittest.TestCase):

@@ -20,12 +20,14 @@ import numpy as np                                      # noqa: E402
 
 from dsa import merge                                   # noqa: E402
 from dsa.bst import YearTree                            # noqa: E402
-from dsa.graph import bfs                               # noqa: E402
+from dsa.graph import bfs, dijkstra                     # noqa: E402
 from dsa.hashtable import HashTable, string_hash        # noqa: E402
 from dsa.heap import MinHeap, top_k                     # noqa: E402
 from dsa.queue import CircularQueue                     # noqa: E402
 from dsa.expression import infix_to_postfix, tokenize_query   # noqa: E402
 from dsa.lru import LRUCache                            # noqa: E402
+from dsa.priority_queue import IndexedMinPQ              # noqa: E402
+from dsa.trie import RadixTrie                          # noqa: E402
 from engine.memindex import PaperIndex, _Grow           # noqa: E402
 
 
@@ -376,7 +378,59 @@ def ex12():
           f" {sum(map(len, cites.values()))} citations; finding a paper's neighbours reads a whole row (O(n))")
 
 
-EXAMPLES = [ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8, ex9, ex10, ex11, ex12]
+
+def ex13():
+    title(13, "related papers by shortest paths (Dijkstra with an indexed priority queue)")
+    edges = [("A", "B", 1), ("A", "C", 4), ("B", "C", 1), ("B", "D", 5), ("C", "D", 1)]
+    graph = {}
+    for u, v, w in edges:
+        graph.setdefault(u, []).append((v, w, ""))
+        graph.setdefault(v, []).append((u, w, ""))
+    print("edges    ", ", ".join(f"{u}-{v} {w}" for u, v, w in edges))
+    pq, dist, done = IndexedMinPQ(), {"A": 0}, set()
+    pq.push("A", 0)
+    while len(pq):
+        node, d = pq.pop()
+        done.add(node)
+        notes = []
+        for nxt, w, _ in graph[node]:
+            if nxt in done:
+                continue
+            old = pq.priority(nxt) if nxt in pq else None
+            if pq.push_or_decrease(nxt, d + w):
+                notes.append(f"{nxt} lowered {old} -> {d + w}" if old is not None else f"{nxt} {d + w}")
+                dist[nxt] = d + w
+        print(f"{'chosen' if node == 'A' else '':<9}pop {node} {d}: " + (", ".join(notes) or "nothing to lower"))
+    order = [(n, d) for n, d, _, _ in dijkstra("A", graph.get)]
+    print("         order (paper, distance):", order, "- C through B beats the direct edge")
+    hops = [(n, h) for n, h, _ in bfs("A", lambda n: [m for m, _, _ in graph[n]], max_depth=3)]
+    print("alt. 1   BFS ignores lengths (paper, links):", hops, "- C (length 4) ranks with B (length 1)")
+    print(f"alt. 2   heap without decrease-key: one entry per improvement, stale ones skipped when popped;"
+          f" up to E = {len(edges)} entries instead of V = {len(graph)}")
+
+
+def ex14():
+    title(14, "title suggestions (radix trie)")
+    titles = ["attention is all you need", "attention is not explanation", "attention mechanisms"]
+    t = RadixTrie()
+    for i, k in enumerate(titles):
+        t.insert(k, i + 1)
+    print("titles   ", ", ".join(f'"{k}"' for k in titles))
+
+    def show(node, label, depth):
+        print((" " * 9 + "  " * depth + (f'-"{label}"-> ' if label else "root ") + (str(sorted(node.values)) if node.values else "")).rstrip())
+        for lab, child in node.edges.values():
+            show(child, lab, depth + 1)
+    print("chosen   radix trie, one edge per merged chain:")
+    show(t.root, "", 0)
+    print(f"         {t.node_count()} nodes; with_prefix('attention is') ->", sorted(k for k, _ in t.with_prefix("attention is")))
+    plain = len({k[:i] for k in titles for i in range(1, len(k) + 1)}) + 1
+    print(f"alt. 1   plain trie: one node per character: {plain} nodes for the same three titles")
+    print("alt. 2   sorted list + binary search for the prefix range: O(log n) to find,"
+          " but every insert or eviction shifts the list (O(n))")
+
+
+EXAMPLES = [ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8, ex9, ex10, ex11, ex12, ex13, ex14]
 
 if __name__ == "__main__":
     chosen = [int(a) for a in sys.argv[1:]] or range(1, len(EXAMPLES) + 1)

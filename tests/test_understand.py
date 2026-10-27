@@ -91,7 +91,32 @@ class RequestTests(unittest.TestCase):
         self.assertEqual(self.u.understand("find me papers", 2026)["query"], "find me papers")   # nothing else to search
 
 
+class Directions(WordCounts):
+    """WordCounts with a 4-d direction per word, standing in for the lexicon's LSA vectors."""
+    DIRS = {"reinforcement": (1, 0.2, 0, 0), "learning": (1, 0.1, 0, 0), "autonomous": (0.9, 0.3, 0, 0),
+            "vehicle": (0.8, 0.4, 0, 0), "navigation": (0.9, 0.2, 0, 0), "improve": (-0.2, 0, 1, 0), "night": (0, 0.1, 0, 1)}
+
+    def word_vector(self, term):
+        v = next((np.asarray(d, np.float32) for w, d in self.DIRS.items() if normalize(w) == term), None)
+        return None if v is None else v / np.linalg.norm(v)
+
+
+class RelaxTests(unittest.TestCase):
+    def test_the_least_related_words_are_dropped(self):
+        u = QueryUnderstanding(Directions({w: 5000 for w in Directions.DIRS}, n_docs=500))
+        r = u.understand("How does reinforcement learning improve autonomous vehicle navigation at night?", 2026)
+        self.assertEqual(r["relaxed"], "reinforcement learning autonomous vehicle navigation")
+        self.assertEqual(r["relax_dropped"], ["improve", "night"])
+        self.assertIsNone(u.understand("reinforcement learning at night", 2026)["relaxed"])    # too short
+        self.assertIsNone(QueryUnderstanding(WordCounts(COUNTS)).relax("a b c d e f")[0])       # no vectors
+
+
 class PipelineTests(unittest.TestCase):
+    def test_fusion_of_several_weighted_lists(self):
+        rows = [(d, 0.0, 0.0, None) for d in [10, 11, 12, 13]]
+        self.assertEqual([r[0] for r in fuse(rows, [[13], [13, 12]])], [13, 12, 10, 11])
+        self.assertEqual([r[0] for r in fuse(rows, [[13], [13]], weights=[0.0, 0.0])], [10, 11, 12, 13])
+
     def test_fusion_rewards_papers_high_in_both_lists(self):
         rows = [(d, 0.0, 0.0, None) for d in [10, 11, 12, 13]]
         fused = [r[0] for r in fuse(rows, [13, 12])]

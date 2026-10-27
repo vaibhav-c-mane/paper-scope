@@ -37,15 +37,17 @@ Data structures and why:
   Breadth-first search over it (dsa/graph.py) lists the papers closest to one
   paper by citation links, for "related papers" in the paper drawer.
 """
+import re
 from collections import Counter
 
 import numpy as np
 
 from dsa.bst import YearTree
-from dsa.graph import bfs
+from dsa.graph import bfs, dijkstra
 from dsa.hashtable import HashTable
 from dsa.heap import top_k as heap_top_k
 from dsa.lru import LRUCache
+from dsa.trie import RadixTrie
 from engine.domains import DOMAINS, blend_with_labels, weak_label_index
 from engine.metadata import columns_of
 from engine.papers import complete, paper_keys
@@ -82,6 +84,11 @@ class _Grow:
         self.extend(rows)
 
 
+def title_key(title):
+    """Lower case, letters and digits only, single spaces: "Attention Is All You Need!" -> "attention is all you need"."""
+    return " ".join(re.findall(r"[a-z0-9]+", (title or "").lower()))
+
+
 class PaperIndex:
     def __init__(self, lexicon, capacity=20000, label_weight=0.6):
         self.lex = lexicon
@@ -96,6 +103,7 @@ class PaperIndex:
         self.meta = _Grow(4)                # year, citations, peer_reviewed, venue_quality (engine/metadata.py)
         self.alive = _Grow(0, bool, False)
         self.by_year = YearTree()           # year -> papers of that year (binary search tree, dsa/bst.py)
+        self.titles = RadixTrie()           # normalised title -> papers (radix trie, dsa/trie.py): suggestions
         self.citers = {}                    # OpenAlex work number -> ids of the papers in memory that cite it
         self.lru = LRUCache(capacity, on_evict=self._evict) if capacity else None
         self.dead = 0
@@ -257,6 +265,7 @@ class PaperIndex:
         self.alive.extend(np.ones(len(fresh), bool))
         for d in range(first, self.n):
             self.by_year.insert(int(self.meta.buf[d, 0]), d)
+            self.titles.insert(title_key(self.papers[d]["title"]), d)
             self._link(d)
         self.generation += 1                # the new postings are merged in by the next _postings()
 
@@ -274,6 +283,7 @@ class PaperIndex:
             if self.key_to_doc.get(k) == d:
                 del self.key_to_doc[k]
         self.by_year.remove(int(self.meta.buf[d, 0]), d)
+        self.titles.remove(title_key(p["title"]), d)
         self.papers[d] = None
         self.fwd[d] = (np.zeros(0, np.int64), np.zeros(0, np.float32), np.zeros(0, np.int64))
         self.alive.buf[d] = False
@@ -291,6 +301,9 @@ class PaperIndex:
         for g in (self.vectors, self.domains, self.meta, self.alive):
             g.keep(keep)
         self.by_year = YearTree.balanced((int(y), d) for d, y in enumerate(self.meta.view[:, 0]))
+        self.titles = RadixTrie()
+        for d, p in enumerate(self.papers):
+            self.titles.insert(title_key(p["title"]), d)
         self.citers = {}
         for d in range(self.n):
             self._link(d)
@@ -308,6 +321,14 @@ class PaperIndex:
         self._csc = None                    # ids changed: the next query rebuilds the inverted index
         self._indexed = self._dead_indexed = 0
         self.generation += 1
+
+    def titles_starting(self, prefix, limit=5, scan=2000):
+        """Papers whose normalised title starts with `prefix`, most cited first: the radix trie
+        lists up to `scan` titles below the prefix, a size-`limit` heap keeps the most cited."""
+        found = [d for _, ds in self.titles.with_prefix(title_key(prefix), limit=scan) for d in ds
+                 if self.alive.buf[d]]
+        cites = [float(self.meta.buf[d, 1]) for d in found]
+        return heap_top_k(cites, found, limit)
 
     # ------------------------------------------------------------- citation graph
     def _link(self, d):
@@ -337,9 +358,45 @@ class PaperIndex:
         out += [c for c in self.citers.get(n, ()) if alive[c]] if n is not None else []
         return [c for c in out if c != d]
 
-    def related(self, d, max_depth=2, limit=10):
+    def citation_links(self, d, max_depth=2, limit=10):
         """[(id, hops, via)]: the papers closest to d in the citation graph, by breadth-first search."""
         return bfs(d, self.neighbours, max_depth=max_depth, limit=limit)
+
+    # How much shorter a link makes an edge than plain similarity: a citation or OpenAlex's own
+    # "related works" list is evidence beyond shared words.
+    LINK_FACTOR = {"cites": 0.5, "cited by": 0.5, "related": 0.6, "similar": 1.0}
+    N_SIMILAR = 5                       # nearest papers by meaning joined to each paper
+
+    def weighted_neighbours(self, u):
+        """[(paper, edge length, link)] for Dijkstra: the papers u cites, that cite it, that
+        OpenAlex lists as related, and its N_SIMILAR nearest by meaning. Length = (1 - cosine of
+        the two papers' vectors) x LINK_FACTOR, at least 0.02; the shortest link per paper counts."""
+        p = self.papers[u]
+        if p is None:
+            return []
+        vec, alive, best = self.vectors.view, self.alive.buf, {}
+
+        def link(c, kind):
+            if c is None or c == u or not alive[c]:
+                return
+            w = max(0.02, 1.0 - float(vec[u] @ vec[c])) * self.LINK_FACTOR[kind]
+            if c not in best or w < best[c][0]:
+                best[c] = (w, kind)
+        for c in self.cites(u):
+            link(c, "cites")
+        n = self._work_number(p)
+        for c in self.citers.get(n, ()) if n is not None else ():
+            link(c, "cited by")
+        for r in p.get("_related") or ():
+            link(self.key_to_doc.get("openalex:w%d" % r), "related")
+        if np.any(vec[u]):
+            for c in self.search_vectors(vec[u], self.N_SIMILAR + 1)[0]:
+                link(int(c), "similar")
+        return [(c, w, kind) for c, (w, kind) in best.items()]
+
+    def related(self, d, limit=10):
+        """[(id, distance, via, link)]: the papers closest to d, by Dijkstra's shortest paths."""
+        return dijkstra(d, self.weighted_neighbours, limit=limit)
 
     def has_citation_data(self, d):
         p = self.papers[d]

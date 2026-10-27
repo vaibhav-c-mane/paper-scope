@@ -122,6 +122,14 @@ class FilterTests(unittest.TestCase):
         best = self.pipe.search("graph neural network", per_page=50, external="never")["results"]
         self.assertEqual([p["key"] for p in rest], [p["key"] for p in best if p["match"] < min(q["match"] for q in on)])
 
+    def test_results_name_the_query_words_they_miss(self):
+        res = self.pipe.search("graph neural network zebra", per_page=50, external="never")
+        self.assertTrue(res["results"])
+        for p in res["results"]:
+            text = (p["title"] + " " + p["abstract"]).lower()
+            self.assertIn("zebra", p["missing"])
+            self.assertEqual("graph" in p["missing"], "graph" not in text)
+
     def test_match_counts_words_and_meaning_not_citations(self):
         res = self.pipe.search("graph neural network", per_page=50, external="never")
         for p in res["results"]:
@@ -147,7 +155,9 @@ class MemoryBoundTests(unittest.TestCase):
         self.assertEqual(len(evicted), 3)
         before = len(transport.calls)
         self.assertIsNotNone(pipe.paper(evicted[0]))                     # fetched again by its DOI
-        self.assertEqual(len(transport.calls), before + 1)
+        new = [c["url"] for c in transport.calls[before:]]
+        self.assertEqual(len([u for u in new if "doi%3A10.1%2Fpf" in u]), 1)
+        self.assertEqual(len(new), 3)                     # + the papers around it: the work, its citing works
 
 
 if __name__ == "__main__":

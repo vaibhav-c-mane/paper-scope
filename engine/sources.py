@@ -250,8 +250,8 @@ class OpenAlex:
         self.http = http
         self.limiter = RateLimiter(8, burst=4, clock=http.clock, sleep=http.sleep)
 
-    def _url(self, params, refs=False):
-        params = dict(params, select=self.SELECT + (",referenced_works" if refs else ""))
+    def _url(self, params, refs=False, select=None):
+        params = dict(params, select=select or self.SELECT + (",referenced_works" if refs else ""))
         if os.environ.get("OPENALEX_EMAIL"):
             params["mailto"] = os.environ["OPENALEX_EMAIL"]
         if os.environ.get("OPENALEX_API_KEY"):
@@ -316,6 +316,21 @@ class OpenAlex:
             ids = "|".join(f"W{n}" for n in chunk)
             out += self._get({"filter": "ids.openalex:" + ids, "per_page": len(chunk)}, refs, deadline)[0]
         return out
+
+    def neighbourhood(self, number, limit=25, deadline=None):
+        """(OpenAlex's related works of W<number>, papers around it): its references and related
+        works (one batch of at most 50) and its `limit` most cited citing works. 3 requests."""
+        data = self.http.json("GET", self._url({"filter": f"ids.openalex:W{number}", "per_page": 1},
+                                               select="id,related_works,referenced_works"),
+                              limiter=self.limiter, deadline=deadline) or {}
+        work = next(iter(data.get("results") or []), {})
+        related = [n for n in (openalex_number(r) for r in work.get("related_works") or []) if n]
+        refs = [n for n in (openalex_number(r) for r in work.get("referenced_works") or []) if n]
+        want = list(dict.fromkeys(related[:20] + refs))[:self.BATCH]
+        papers = self.by_ids(want, refs=True, deadline=deadline) if want else []
+        papers += self._get({"filter": f"cites:W{number}", "sort": "cited_by_count:desc", "per_page": limit},
+                            refs=True, deadline=deadline)[0]
+        return related, papers
 
     def sample(self, n, seed=0, filters="has_abstract:true,referenced_works_count:>9", refs=True):
         """A reproducible random sample of works (with their reference lists)."""
@@ -524,11 +539,12 @@ class ScholarlyClient:
         return papers[:limit], report
 
     def search_openalex(self, kind, query, limit=25, deadline_s=6.0, year_from=None, year_to=None):
-        """An extra OpenAlex search: kind "semantic" (by meaning) or "titles" (by title, most
-        cited first). Cached like search(). A failure here is reported but does not pause the
+        """An extra OpenAlex search: kind "semantic" (by meaning), "titles" (by title, most
+        cited first) or "relaxed" (keywords: the query without its least related words). Cached like search(). A failure here is reported but does not pause the
         keyword search, which counts as a separate provider ("openalex-semantic", ...)."""
         name = "openalex-" + kind
-        label = {"semantic": "OpenAlex (by meaning)", "titles": "OpenAlex (by title)"}[kind]
+        label = {"semantic": "OpenAlex (by meaning)", "titles": "OpenAlex (by title)",
+                 "relaxed": "OpenAlex (fewer words)"}[kind]
         entry = {"provider": label, "cached": False}
         prov = self.providers.get("openalex")
         if prov is None:
@@ -543,7 +559,7 @@ class ScholarlyClient:
                             error=f"skipped: failed recently, retrying in {_human(max(self._wait(name), self._wait('openalex')))}")
         else:
             try:
-                found = getattr(prov, kind)(query, limit, self.http.clock() + deadline_s, year_from, year_to)
+                found = getattr(prov, {"relaxed": "search"}.get(kind, kind))(query, limit, self.http.clock() + deadline_s, year_from, year_to)
                 self.cache.put(key, found, self.search_ttl if found else self.negative_ttl)
                 entry.update(ok=True, results=len(found))
             except Exception as e:
@@ -554,6 +570,24 @@ class ScholarlyClient:
                 entry.update(ok=False, results=0, error=f"{type(e).__name__}: {e}"[:160])
         entry["ms"] = round((time.perf_counter() - t0) * 1000, 1)
         return [dict(p) for p in found], entry
+
+    # ---- the papers around one paper (for related papers)
+    def neighbourhood(self, number, deadline_s=6.0):
+        """(related work numbers, papers, report) for OpenAlex work W<number>; cached for a week."""
+        key = ("neighbourhood", number)
+        cached = self.cache.get(key, _MISS)
+        if cached is not _MISS:
+            return cached[0], [dict(p) for p in cached[1]], {"cached": True, "ok": True}
+        prov = self.providers.get("openalex")
+        if prov is None or not self._up("openalex"):
+            return [], [], {"cached": False, "ok": False, "error": "OpenAlex not available"}
+        try:
+            related, papers = prov.neighbourhood(number, deadline=self.http.clock() + deadline_s)
+        except Exception as e:
+            self._failed("openalex", e)
+            return [], [], {"cached": False, "ok": False, "error": f"{type(e).__name__}: {e}"[:160]}
+        self.cache.put(key, (related, papers), self.paper_ttl)
+        return related, [dict(p) for p in papers], {"cached": False, "ok": True}
 
     # ---- one paper by DOI, arXiv id or OpenAlex id
     def get_paper(self, identifier, deadline_s=6.0):

@@ -24,9 +24,13 @@ recency, peer review and venue quality.
   index, a vector index, an LRU cache (hash map + doubly linked list), an
   array-based stack for `AND / OR / NOT`, sorted-list merges and merge sort, a
   min-heap that picks the best candidates, a hash table (separate chaining) that
-  merges duplicate papers, a binary search tree for year filters, and
-  breadth-first search with a circular queue that finds related papers through
-  citations (shown when you open a paper).
+  merges duplicate papers, a binary search tree for year filters, an indexed
+  priority queue for Dijkstra's shortest paths (related papers through citations,
+  OpenAlex's related works and meaning), breadth-first search with a circular
+  queue (citation links), and a radix trie that suggests paper titles as you type.
+* A long query is also searched without its least related words, so a paper
+  that skips a word ("night") is still found; each result says which of your
+  words it is missing.
 
 Why each design choice was made: [docs/DESIGN.md](docs/DESIGN.md).
 
@@ -63,9 +67,11 @@ The page shows the results and, next to them, how the search worked: which
 words were used, whether the internet was asked and which provider answered,
 how many candidates came from the inverted index and the vector index, the
 detected research field, and the stack steps of a boolean query. Click a paper
-to see why it ranked where it did (its nine feature values) and its related
-papers: the papers in memory linked to it by citations, found by breadth-first
-search (click one to open it).
+to see why it ranked where it did (its nine feature values), its related
+papers (closest first by Dijkstra's shortest paths over citation, related-work
+and similarity links; the papers around it are fetched from OpenAlex the first
+time it is opened) and its citation links (breadth-first search). While you
+type, paper titles in memory that start with your text are suggested.
 
 ![Search page](docs/search.png)
 
@@ -99,7 +105,8 @@ JSON API: `GET /api/search?q=...&exact=1&year_from=&year_to=&author=&field=&stri
 1. **Understand** the query (`engine/understand.py`): fix typos with a spelling
    model learned from 600,013 real papers, drop request words ("find me papers
    on"), turn "recent" / "latest" into a year filter, and decide whether to also
-   search by meaning (a sentence or question) or by title (a short phrase).
+   search by meaning (a sentence or question) or by title (a short phrase), and
+   which words a long query could do without (least related in meaning).
 2. **Parse** it (`engine/pipeline.py`): words, exclusions, prefixes,
    identifiers; `AND / OR / NOT` go through the shunting-yard algorithm on a stack
    (`dsa/expression.py`).
@@ -111,10 +118,11 @@ JSON API: `GET /api/search?q=...&exact=1&year_from=&year_to=&author=&field=&stri
    confident matches, ask OpenAlex → Semantic Scholar → Crossref (rate limits,
    timeouts, retries, a one-minute cool-down for a failing provider, answers
    cached in memory). At the same time, a sentence also goes to OpenAlex's
-   search by meaning, and a short phrase to its title search (most cited
-   first). New papers join the index and the ranking is redone; for a sentence
-   it is combined with the by-meaning order (reciprocal rank fusion), and a
-   well-cited paper whose title is the query goes first.
+   search by meaning, a long query also without its least related words, and a
+   short phrase to its title search (most cited first). New papers join the
+   index and the ranking is redone, combined with the by-meaning and
+   fewer-words orders (reciprocal rank fusion), and a well-cited paper whose
+   title is the query goes first.
 6. **Order** the results with merge sort (stable) and return one page.
 
 ## Understanding everyday queries
@@ -146,6 +154,23 @@ Every change is shown on the page ("Showing results for ...", the corrected
 words, what was left out) and can be undone with "Search instead for" (the API's
 `exact=1`, the command line's `--exact`). A new topic costs up to two more
 OpenAlex requests; repeated searches come from memory.
+
+## Papers a long query used to miss
+
+"How does reinforcement learning improve autonomous vehicle navigation at
+night?" never found "Optimizing Autonomous Vehicle Navigation Through
+Reinforcement Learning in Dynamic Urban Environments" (MDPI, 2025): OpenAlex's
+keyword search wants every word, and the paper says neither "night" nor
+"improve". The query understanding now also searches without the words least
+related in meaning to the rest (here "improve" and "night"), and fuses that
+order in at half weight. The paper is now found (38th by relevance, 14th by
+newest; before, not at all), each result shows "Missing: improve night", and
+"reinforcement learning for autonomous vehicle navigation in urban environments"
+puts it 2nd. On the 27 live check queries: right titles in the top 10 81%
+(74% with `--exact`), first result right in 26 of 27 (24 with `--exact`),
+median 1.8 s per new query (1.0 s).
+
+![Related papers](docs/related.png)
 
 ## Train
 
@@ -286,8 +311,9 @@ and the index is compacted, so search time stays flat as the session goes on.
 python -m unittest -v
 ```
 
-89 tests, no internet needed (a fake HTTP transport stands in for the APIs):
-the data structures (heap, hash table, queue, BFS and year tree included), the in-memory index (BM25 against its formula, eviction,
+97 tests, no internet needed (a fake HTTP transport stands in for the APIs):
+the data structures (heap, hash table, queue, BFS, year tree, priority queue,
+Dijkstra and radix trie included), the in-memory index (BM25 against its formula, eviction,
 compaction), the online sources (cascade, cache, cool-down, deadline), query
 understanding (spelling, request words, recency, fusion), the pipeline end to end, LambdaMART, and the web API.
 
@@ -316,7 +342,9 @@ dsa/
   hashtable.py         hash table (separate chaining) for paper identity keys
   bst.py               binary search tree keyed by year (year filter)
   queue.py             circular queue
-  graph.py             breadth-first search (related papers)
+  priority_queue.py    indexed min-heap with decrease-key
+  graph.py             breadth-first search (citation links), Dijkstra (related papers)
+  trie.py              radix trie (title suggestions)
 ml/
   train.py             builds every model and evaluates it
   dataset.py           real citation labels (online, pool, or your judgments)

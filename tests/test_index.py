@@ -200,7 +200,7 @@ class PaperIndexTests(unittest.TestCase):
         self.assertEqual(len(idx), 12)
         self.assertTrue(compacted)
         last = idx.find("openalex:w249")
-        self.assertEqual([(idx.paper(r)["title"], h) for r, h, _ in idx.related(last, max_depth=3)],
+        self.assertEqual([(idx.paper(r)["title"], h) for r, h, _ in idx.citation_links(last, max_depth=3)],
                          [("Linked paper 148", 1), ("Linked paper 147", 2), ("Linked paper 146", 3)])
         self.assertNotIn("refs", idx.paper(last))
 

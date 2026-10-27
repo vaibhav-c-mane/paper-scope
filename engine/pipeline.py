@@ -107,15 +107,22 @@ def match_level(m):
     return next(name for floor, name in MATCH_LEVELS if m >= floor)
 
 
-def fuse(rows, other, k=FUSION_K):
-    """Reciprocal rank fusion of two orders: our ranked rows and another list of paper ids (OpenAlex's
-    search by meaning). Each paper scores 1/(k + its place) in every list it is in, and rows are
-    re-sorted by the sum (merge sort, stable). A paper near the top of both lists wins; one list alone
-    cannot push a paper far up, because k = 60 flattens the gap between places 1 and 10."""
-    place = {}
-    for i, d in enumerate(other):
-        place.setdefault(int(d), i + 1)
-    scored = [(1.0 / (k + i + 1) + (1.0 / (k + place[row[0]]) if row[0] in place else 0.0), row)
+def fuse(rows, others, k=FUSION_K, weights=None):
+    """Reciprocal rank fusion of our ranked rows with other orders (lists of paper ids: OpenAlex's
+    search by meaning, its fewer-words search). Each paper scores 1/(k + its place) in every list
+    it is in (times that list's weight, 1 by default), and rows are re-sorted by the sum (merge sort,
+    stable). A paper near the top of several lists wins; one list alone cannot push a paper far
+    up, because k = 60 flattens the gap between places 1 and 10. `others` may be one list."""
+    if others and not isinstance(others[0], (list, tuple, np.ndarray)):
+        others = [others]
+    weights = list(weights) if weights is not None else [1.0] * len(others)
+    places = []
+    for other in others:
+        place = {}
+        for i, d in enumerate(other):
+            place.setdefault(int(d), i + 1)
+        places.append((place, weights[len(places)]))
+    scored = [(1.0 / (k + i + 1) + sum(w / (k + pl[row[0]]) for pl, w in places if row[0] in pl), row)
               for i, row in enumerate(rows)]
     return [row for _, row in merge_sort(scored, key=lambda t: t[0], reverse=True)]
 
@@ -194,9 +201,11 @@ class SearchPipeline:
     N_SEMANTIC = 200
     MIN_CONFIDENT = 3           # fewer confident local matches than this -> search online
     ONLINE_LIMIT = 50           # papers asked from the online source per search
-    N_RELATED = 8               # related papers in the paper drawer (BFS over citations)
+    N_RELATED = 8               # related papers (Dijkstra) and citation links (BFS) in the paper drawer
     N_TITLES = 10               # most cited papers whose title contains a title-like query
     TITLE_MIN_CITATIONS = 50    # an exact title match moves to the top only if cited this often
+    # other orders fused with the ranker's (name -> label, weight in the fusion)
+    FUSED = {"semantic": ("OpenAlex (by meaning)", 1.0), "relaxed": ("OpenAlex (fewer words)", 0.5)}
 
     def __init__(self, models_dir="data/models", client=None, lexicon=None, ranker=None, capacity=20000,
                  now_year=None):
@@ -208,7 +217,7 @@ class SearchPipeline:
         self.now_year = now_year
         self.lock = threading.RLock()        # the in-memory index is shared by all requests
         self.understanding = QueryUnderstanding(self.lex)
-        self.pool = ThreadPoolExecutor(max_workers=3)   # keyword, meaning and title searches run together
+        self.pool = ThreadPoolExecutor(max_workers=4)   # keyword, meaning, fewer-words and title searches run together
 
     def reload_models(self):
         self.ranker = load_ranker(os.path.join(self.models_dir, "ranker.json"))
@@ -335,12 +344,15 @@ class SearchPipeline:
                                "ms": round((time.perf_counter() - t0) * 1000, 1)}
             rows = self._rank_local(parsed, filters, mode, r, forced=ids, trace=trace)
             if mode == "learned":
-                start = 0
+                start, lists, names = 0, [], []
                 for name, count in parts:
-                    if name == "semantic" and count:
-                        rows = fuse(rows, ids[start:start + count])
-                        trace["fusion"] = {"with": "OpenAlex (by meaning)", "papers": count, "k": FUSION_K}
+                    if name in self.FUSED and count:
+                        lists.append(ids[start:start + count])
+                        names.append(self.FUSED[name])
                     start += count
+                if lists:
+                    rows = fuse(rows, lists, weights=[w for _, w in names])
+                    trace["fusion"] = {"with": " and ".join(n for n, _ in names), "papers": sum(map(len, lists)), "k": FUSION_K}
                 rows = self._exact_titles_first(rows, parsed, trace)
             return [(self.index.key_of(d), s, v, x) for d, s, v, x in rows]
 
@@ -380,6 +392,9 @@ class SearchPipeline:
             if understood["semantic"]:
                 extra.append(("semantic", self.pool.submit(self.client.search_openalex, "semantic", plain,
                                                            self.ONLINE_LIMIT, year_from=year_from, year_to=year_to)))
+            if understood.get("relaxed"):
+                extra.append(("relaxed", self.pool.submit(self.client.search_openalex, "relaxed", understood["relaxed"],
+                                                          self.ONLINE_LIMIT, year_from=year_from, year_to=year_to)))
             if understood["title"]:
                 extra.append(("titles", self.pool.submit(self.client.search_openalex, "titles", plain,
                                                          self.N_TITLES, year_from=year_from, year_to=year_to)))
@@ -451,11 +466,12 @@ class SearchPipeline:
             total = len(items)
             start = max(0, (page - 1) * per_page)
             results = []
+            missing = self._missing_words(trace)
             for d, score, rel, x, m in items[start:start + per_page]:
                 self.index.touch(d)                     # shown papers count as recently used
                 p = {k: v for k, v in self.index.paper(d).items() if not k.startswith("_")}
                 p.update({"key": self.index.key_of(d), "score": round(score, 4), "relevance": round(rel, 3),
-                          "match": round(m, 3), "match_level": match_level(m),
+                          "match": round(m, 3), "match_level": match_level(m), "missing": missing(d),
                           "field": DOMAINS[int(self.index.domains.view[d].argmax())],
                           "features": {f: round(float(v), 3) for f, v in zip(FEATURES, x)}})
                 results.append(p)
@@ -463,34 +479,88 @@ class SearchPipeline:
         trace["total_ms"] = round((time.perf_counter() - t0) * 1000, 1)
         return {"total": total, "page": page, "per_page": per_page, "results": results, "trace": trace}
 
+    def _missing_words(self, trace):
+        """A function: paper id -> the query words it does not contain (shown as "Missing: night",
+        so a result that skips a word is not mistaken for a wrong one). A paper's word ids are
+        sorted in the forward index, so each check is a binary search, O(log n) per word."""
+        words = list(dict.fromkeys((trace.get("query") or {}).get("words") or []))
+        if not words or "identifier" in trace:
+            return lambda d: []
+        shown = {}
+        for tok in (trace["query"].get("text") or "").split():
+            for t in terms(tok):
+                shown.setdefault(t, re.sub(r"[^\w-]", "", tok.lower()))
+        groups = [(shown.get(w, w.rstrip("*")), np.asarray(self.index.expand(w), np.int64)) for w in words]
+
+        def missing(d):
+            ids = self.index.fwd[d][0]
+            out = []
+            for word, g in groups:
+                pos = np.searchsorted(ids, g)
+                if not len(ids) or not np.any((pos < len(ids)) & (ids[np.minimum(pos, len(ids) - 1)] == g)):
+                    out.append(word)
+            return out
+        return missing
+
     def paper(self, key):
-        """One paper by its key (from memory, or online if it was evicted since)."""
+        """One paper by its key (from memory, or online if it was evicted since), with its
+        related papers. The first time a paper is opened, the papers around it (references,
+        OpenAlex's related works, most cited citing works) are fetched into memory."""
         with self.lock:
             d = self.index.find(key)
             if d is not None:
                 self.index.touch(d)
-                return self._public(d, key)
-        kind, _, value = key.partition(":")
-        if self.client is None or kind not in ("doi", "arxiv", "openalex"):
-            return None
-        paper, _ = self.client.get_paper(value)
-        if not paper:
-            return None
+        if d is None:
+            kind, _, value = key.partition(":")
+            if self.client is None or kind not in ("doi", "arxiv", "openalex"):
+                return None
+            paper, _ = self.client.get_paper(value)
+            if not paper:
+                return None
+            with self.lock:
+                d = self.index.add([paper])[0]
         with self.lock:
-            d = self.index.add([paper])[0]
+            key, saved = self.index.key_of(d), dict(self.index.paper(d))
+        self._fetch_neighbourhood(key)
+        with self.lock:                     # adding papers can evict or renumber: find it again by key
+            d = self.index.find(key)
+            if d is None:
+                again = {k: v for k, v in saved.items() if not k.startswith("_")}
+                d = self.index.add([dict(again, refs=saved.get("_refs") or [])])[0]
             return self._public(d, self.index.key_of(d))
 
+    def _fetch_neighbourhood(self, key):
+        with self.lock:
+            d = self.index.find(key)
+            p = self.index.paper(d) if d is not None else None
+            number = self.index._work_number(p) if p else None
+            if number is None or "_related" in p or self.client is None \
+                    or not hasattr(self.client, "neighbourhood"):
+                return
+        related, papers, report = self.client.neighbourhood(number)
+        with self.lock:
+            if papers:
+                self.index.add(papers)
+            d = self.index.find("openalex:w%d" % number)
+            if d is not None and report.get("ok"):
+                self.index.paper(d)["_related"] = related
+
     def _public(self, d, key):
-        """Paper d as the API returns it, with its related papers (BFS over citations in memory)."""
+        """Paper d as the API returns it, with its related papers (Dijkstra over citation, related-work
+        and similarity links) and its citation links (BFS over citations only), both among papers in memory."""
         idx = self.index
         p = {k: v for k, v in idx.paper(d).items() if not k.startswith("_")}
         p["key"] = key
         p["citation_data"] = idx.has_citation_data(d)
-        cited = set(idx.cites(d))
         p["related"] = [{"key": idx.key_of(r), "title": idx.paper(r)["title"], "year": idx.paper(r)["year"],
-                         "hops": hops, "via": idx.paper(via)["title"] if hops > 1 else None,
-                         "relation": ("reference" if r in cited else "citing") if hops == 1 else None}
-                        for r, hops, via in idx.related(d, max_depth=2, limit=self.N_RELATED)]
+                         "closeness": round(float(np.exp(-dist)), 3), "link": link,
+                         "via": idx.paper(via)["title"] if via != d else None}
+                        for r, dist, via, link in idx.related(d, limit=self.N_RELATED)]
+        cited = set(idx.cites(d))
+        p["citation_links"] = [{"key": idx.key_of(r), "title": idx.paper(r)["title"], "year": idx.paper(r)["year"],
+                           "hops": hops, "via": idx.paper(via)["title"] if hops > 1 else None,
+                           "relation": ("reference" if r in cited else "citing") if hops == 1 else None}
+                          for r, hops, via in idx.citation_links(d, max_depth=2, limit=self.N_RELATED)]
         return p
 
     def suggest(self, prefix, limit=8):
@@ -504,6 +574,14 @@ class SearchPipeline:
             return []
         best = ids[np.argsort(-self.lex.df[ids], kind="stable")[:limit]]
         return [self.lex.vocab[i] for i in best]
+
+    def suggest_titles(self, text, limit=5):
+        """Papers in memory whose title starts with what was typed (radix trie), most cited first."""
+        if len(text.strip()) < 3:
+            return []
+        with self.lock:
+            return [{"key": self.index.key_of(d), "title": self.index.paper(d)["title"],
+                     "year": self.index.paper(d)["year"]} for d in self.index.titles_starting(text, limit)]
 
     def state(self):
         with self.lock:

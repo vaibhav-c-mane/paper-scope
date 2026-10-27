@@ -8,7 +8,7 @@ prints how many of the top 10 titles match and where the first match is.
   OPENALEX_API_KEY=... python scripts/check_queries.py            with query understanding
   OPENALEX_API_KEY=... python scripts/check_queries.py --exact    words as typed (the old behaviour)
 
-About 3 OpenAlex requests per query ($0.003 with a key).
+About 4 OpenAlex requests per query ($0.004 with a key).
 """
 import argparse
 import os
@@ -51,6 +51,7 @@ CASES = [
     ('translating languages without parallel data', 'unsupervised|translation|monolingual'),
     ('machne lerning for protien structure predicton', 'protein|structure|fold'),
     ('show me the best papers about crispr gene editing', 'crispr|cas9|genome|gene editing'),
+    ('How does reinforcement learning improve autonomous vehicle navigation at night?', 'reinforcement|navigat|autonomous|driving|night'),
 ]
 
 

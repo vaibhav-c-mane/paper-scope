@@ -117,6 +117,19 @@ class Lexicon:
     def dim(self):
         return 0 if self.lsa is None else self.lsa.shape[1]
 
+    def word_vector(self, term):
+        """A word's own direction in the LSA space (its idf-weighted row of the projection), unit
+        length; None for a word that is not one of the TF-IDF columns."""
+        if self.lsa is None:
+            return None
+        i = self.term_id(term)
+        j = int(np.searchsorted(self.cols, i)) if i >= 0 else -1      # cols is sorted: binary search
+        if j < 0 or j >= len(self.cols) or self.cols[j] != i:
+            return None
+        v = self.lsa[j] * self.col_idf[j]
+        n = float(np.linalg.norm(v))
+        return v / n if n else None
+
     # ------------------------------------------------------------- text -> vectors
     def count_rows(self, docs):
         """docs: list of (title tokens, body tokens) -> CSR counts over the vocabulary

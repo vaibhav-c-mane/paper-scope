@@ -62,7 +62,8 @@ def create_app(pipeline=None):
 
     @app.get("/api/suggest")
     def api_suggest():
-        return jsonify({"suggestions": pipeline.suggest(request.args.get("prefix", ""))})
+        return jsonify({"suggestions": pipeline.suggest(request.args.get("prefix", "")),
+                        "titles": pipeline.suggest_titles(request.args.get("q", ""))})
 
     @app.get("/api/paper")
     def api_paper():

@@ -36,6 +36,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .suggest { position: absolute; top: 100%; left: 0; z-index: 5; margin: 4px 0 0; padding: 4px; list-style: none; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); min-width: 220px; }
 .suggest li { padding: 4px 10px; border-radius: 6px; cursor: pointer; }
 .suggest li.on, .suggest li:hover { background: var(--accent-soft); }
+.suggest li.title { font-size: 13px; border-top: 1px solid var(--border); max-width: 640px; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px 16px; margin-top: 10px; font-size: 13px; color: var(--muted); }
 .filters input[type=number] { width: 78px; }
 .filters #author { width: 130px; }
@@ -62,6 +63,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .bar i { display: block; height: 100%; background: var(--accent); }
 .chip .bar { background: var(--border); margin-right: 3px; }
 .match.m-strong .bar i { background: var(--good); } .match.m-partial .bar i { background: var(--muted); }
+.missing { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
 mark { background: var(--accent-soft); color: inherit; border-radius: 3px; padding: 0 1px; }
 .pager { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
 
