@@ -92,7 +92,7 @@ function renderResults(res) {
         <h3>${first + i + 1}. ${highlight(p.title, words)}</h3>
         <div class="meta">${esc(p.year || "?")} · ${esc((p.authors || "").slice(0, 110))}${p.venue ? " · <i>" + esc(p.venue) + "</i>" : ""}</div>
         <div class="abs">${highlight(p.abstract || "(no abstract)", words)}</div>
-        <div class="chips">${chipsFor(p)}<span class="chip">relevance <span class="bar"><i style="width:${Math.round(p.relevance * 100)}%"></i></span></span></div>
+        <div class="chips">${chipsFor(p)}${matchChip(p)}</div>
       </article>`).join("") +
     `<div class="pager">${res.page > 1 ? `<button data-page="${res.page - 1}">‹ Previous</button>` : ""}` +
     `${first + res.per_page < res.total ? `<button data-page="${res.page + 1}">Next ›</button>` : ""}</div>`;
@@ -163,8 +163,16 @@ function renderTrace(t) {
   }
   if (t.rerank) rows.push(`<h4>Ranking</h4><div>${esc(t.rerank.ranker)} · confident above ${t.rerank.threshold}` +
     (t.fusion ? `<br>combined with the order of ${esc(t.fusion.with)} (reciprocal rank fusion)` : "") +
-    (t.exact_title ? `<br>exact title match moved to the top` : "") + "</div>");
+    (t.exact_title ? `<br>exact title match moved to the top` : "") +
+    (t.sorted_on_topic != null ? `<br>${t.sort === "year" ? "newest" : "most cited"} first among the ${t.sorted_on_topic} papers that match best, then the rest by relevance` : "") + "</div>");
   el.innerHTML = rows.join("");
+}
+
+function matchChip(p) {
+  // topic match: share of the query covered in words and meaning (engine/pipeline.py, match_scores)
+  const pct = Math.round(p.match * 100);
+  return `<span class="chip match m-${esc(p.match_level)}" title="Covers about ${pct}% of your search, in words and meaning. Citations and year are not counted here.">` +
+    `${esc(p.match_level)} match <span class="bar"><i style="width:${pct}%"></i></span> ${pct}%</span>`;
 }
 
 // ------------------------------------------------------------------ paper drawer

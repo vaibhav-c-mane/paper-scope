@@ -84,6 +84,28 @@ def parse_query(q):
 
 FUSION_K = 60
 
+# The match shown to the user: how much of the query a paper covers, in words and in meaning.
+# Citations, recency and venue are left out on purpose: they help the ranker order papers, but
+# a new or uncited paper can be exactly on topic. The ranker's own relevance (0..1) is the
+# probability that a paper with this query as its title would cite the candidate, which stays
+# low for sentences even when the papers are right, so it is not shown as the match.
+MATCH_WEIGHTS = {"term_coverage": 0.45, "title_coverage": 0.20, "semantic": 0.35}
+MATCH_LEVELS = ((0.75, "strong"), (0.5, "good"), (0.0, "partial"))
+ON_TOPIC_SHARE = 0.7        # sorting by year or citations: papers within 70% of the best match first
+
+
+def match_scores(x):
+    """0..1 topic match of each row of a feature matrix (see MATCH_WEIGHTS)."""
+    x = np.asarray(x, np.float32).reshape(-1, len(FEATURES))
+    w = np.zeros(len(FEATURES), np.float32)
+    for f, v in MATCH_WEIGHTS.items():
+        w[FEATURES.index(f)] = v
+    return np.clip(x @ w, 0.0, 1.0)
+
+
+def match_level(m):
+    return next(name for floor, name in MATCH_LEVELS if m >= floor)
+
 
 def fuse(rows, other, k=FUSION_K):
     """Reciprocal rank fusion of two orders: our ranked rows and another list of paper ids (OpenAlex's
@@ -413,16 +435,27 @@ class SearchPipeline:
                 if d is None:
                     continue
                 items.append((d, score, rel, x))
+            match = match_scores([it[3] for it in items]) if items else np.zeros(0, np.float32)
+            if "identifier" in trace:
+                match[:] = 1.0                                  # the paper that was asked for
+            items = [it + (float(m),) for it, m in zip(items, match)]
             if sort_by in ("year", "citations") and items:
+                # Newest or most cited among the papers that are on topic; the rest follow in
+                # relevance order. Sorting every candidate put weak matches first.
+                bar = ON_TOPIC_SHARE * float(match.max())
+                on = [it for it in items if it[4] >= bar]
                 col = 0 if sort_by == "year" else 1                # stored metadata columns
-                items = merge_sort(items, key=lambda it: float(self.index.meta.view[it[0], col]), reverse=True)
+                items = merge_sort(on, key=lambda it: float(self.index.meta.view[it[0], col]), reverse=True) + \
+                    [it for it in items if it[4] < bar]
+                trace["sorted_on_topic"] = len(on)
             total = len(items)
             start = max(0, (page - 1) * per_page)
             results = []
-            for d, score, rel, x in items[start:start + per_page]:
+            for d, score, rel, x, m in items[start:start + per_page]:
                 self.index.touch(d)                     # shown papers count as recently used
                 p = {k: v for k, v in self.index.paper(d).items() if not k.startswith("_")}
                 p.update({"key": self.index.key_of(d), "score": round(score, 4), "relevance": round(rel, 3),
+                          "match": round(m, 3), "match_level": match_level(m),
                           "field": DOMAINS[int(self.index.domains.view[d].argmax())],
                           "features": {f: round(float(v), 3) for f, v in zip(FEATURES, x)}})
                 results.append(p)

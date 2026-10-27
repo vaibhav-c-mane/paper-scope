@@ -60,6 +60,8 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .chip.good { color: var(--good); } .chip.warn { color: var(--bad); }
 .bar { display: inline-block; vertical-align: middle; width: 70px; height: 6px; border-radius: 3px; background: var(--chip); overflow: hidden; margin-left: 4px; }
 .bar i { display: block; height: 100%; background: var(--accent); }
+.chip .bar { background: var(--border); margin-right: 3px; }
+.match.m-strong .bar i { background: var(--good); } .match.m-partial .bar i { background: var(--muted); }
 mark { background: var(--accent-soft); color: inherit; border-radius: 3px; padding: 0 1px; }
 .pager { display: flex; gap: 8px; justify-content: center; margin-top: 12px; }
 

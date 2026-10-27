@@ -48,7 +48,8 @@ def show(res, k):
         venue = p["venue"] or ("preprint" if p.get("published") is False else "")
         cites = "?" if p["citations"] is None else p["citations"]
         print(f"    {p['year'] or '?'} · {venue[:40]} · {cites} citations · {p['field']} · {p['source']}")
-        print("    score {:.3f} · relevance {:.2f} · ".format(p["score"], p["relevance"])
+        print("    {} match {:.0%} · score {:.3f} · ranker relevance {:.2f} · ".format(
+              p["match_level"], p["match"], p["score"], p["relevance"])
               + " ".join(f"{n}={v:.2f}" for n, v in p["features"].items()))
     print()
 

@@ -111,10 +111,24 @@ class FilterTests(unittest.TestCase):
         res = self.pipe.search("structure detection model", field="Computer Vision", strict_field=True, external="never")
         self.assertTrue(res["results"] and all(p["field"] == "Computer Vision" for p in res["results"]))
 
-    def test_sort_by_year_uses_stable_merge_sort(self):
-        res = self.pipe.search("graph", sort_by="year", per_page=50, external="never")
-        years = [p["year"] for p in res["results"]]
-        self.assertEqual(years, sorted(years, reverse=True))
+    def test_sort_by_year_puts_on_topic_papers_first(self):
+        res = self.pipe.search("graph neural network", sort_by="year", per_page=50, external="never")
+        n = res["trace"]["sorted_on_topic"]
+        on, rest = res["results"][:n], res["results"][n:]
+        years = [p["year"] for p in on]
+        self.assertEqual(years, sorted(years, reverse=True))           # stable merge sort by year
+        self.assertTrue(on and rest)
+        self.assertGreater(min(p["match"] for p in on), max(p["match"] for p in rest))
+        best = self.pipe.search("graph neural network", per_page=50, external="never")["results"]
+        self.assertEqual([p["key"] for p in rest], [p["key"] for p in best if p["match"] < min(q["match"] for q in on)])
+
+    def test_match_counts_words_and_meaning_not_citations(self):
+        res = self.pipe.search("graph neural network", per_page=50, external="never")
+        for p in res["results"]:
+            f = p["features"]
+            want = 0.45 * f["term_coverage"] + 0.2 * f["title_coverage"] + 0.35 * f["semantic"]
+            self.assertAlmostEqual(p["match"], want, places=2)
+            self.assertEqual(p["match_level"], "strong" if p["match"] >= 0.75 else "good" if p["match"] >= 0.5 else "partial")
 
     def test_suggest(self):
         self.assertIn("graph", self.pipe.suggest("gra"))

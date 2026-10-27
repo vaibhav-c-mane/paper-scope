@@ -1,9 +1,10 @@
 # PaperScope: project documentation
 
 This document describes PaperScope as the code in this folder implements it
-(version 3.5, 27 October 2026). Part 1 explains what the project does and how it
+(version 3.6, 27 October 2026). Part 1 explains what the project does and how it
 is built, including a plain explanation of the learned ranker (section 11) and
-of how everyday queries are understood (section 12, new in 3.5).
+of how everyday queries are understood (section 12, new in 3.5) and how the
+match shown next to each result is computed (section 13, new in 3.6).
 Part 2 justifies each core data structure, compares it with alternatives on
 small worked examples, records the three changes made after measuring them, and
 describes the four hand-written structures added in version 3.4 so that every
@@ -140,7 +141,7 @@ paper-search/
 │   ├── ds_examples.py      reproduces the worked examples in Part 2 of this document
 │   └── check_queries.py    26 everyday queries against live OpenAlex (search quality, section 12)
 ├── static/                 index.html, app.js, style.css (the web page)
-├── tests/                  88 unit tests, no network needed (fake HTTP transport)
+├── tests/                  89 unit tests, no network needed (fake HTTP transport)
 └── docs/                   DESIGN.md, PROJECT.md (this file), screenshots
 ```
 
@@ -406,7 +407,10 @@ correction to the trees before it.
 **5. From score to "relevant".** The score is turned into a 0..1 relevance with
 Platt scaling: relevance = 1 / (1 + e^−(0.668 × score − 3.868)). A paper counts
 as a confident match at relevance 0.396 or more, and the search goes online when
-fewer than 3 papers in memory are confident.
+fewer than 3 papers in memory are confident. This relevance is the probability
+that a paper titled like the query would cite the candidate, which is what the
+trees were trained on; it orders papers well but is not shown to the user as
+"how well it matches" (section 13).
 
 **6. What the trees rely on.** Each feature's share of the improvement made by
 the trees' questions (`importance` in `data/models/ranker.json`): citations 0.28, word match
@@ -485,6 +489,52 @@ predict heart disease" (1.0 → 0.9) and "self-driving cars seeing pedestrians a
 night" (first right paper 1st → 2nd, though its top 10 improved from 0.6 to
 0.8). Live answers change from day to day, so differences of one paper are noise. Known-title queries such as "deep residual learning for image
 recognition" still score 0.1 because only one paper has that title; it is first.
+
+## 13. The match shown next to each result (version 3.6)
+
+**The problem.** Up to version 3.5 the bar next to each result showed the
+ranker's relevance (section 11, step 5): the probability that a paper with the
+query as its title would cite the candidate. It orders papers well, but its
+values are small for anything that is not a short title-like phrase, and it
+falls further for new papers (few citations). Measured live on the 26 queries
+of section 12 with Internet set to "always" (top 10 of each, 27 October 2026),
+the bar was below 10% for 21% of the results, and right papers had the same
+median bar (9%) as wrong ones. For "I want research papers on how to make
+neural networks smaller", SqueezeNet and Slimmable Neural Networks showed 6%
+and 4%. Sorting by newest was worse: it sorted every candidate by year, so weak
+matches came first, and 60% of the top 10 showed less than 10%.
+
+**What it shows now.** A topic match from the three features a user can check
+by reading the paper, with citations, year and venue left out
+(`engine/pipeline.py`, `match_scores`):
+
+    match = 0.45 × share of the query words found in the paper
+          + 0.20 × share of the query words found in its title
+          + 0.35 × meaning similarity (cosine of the 160-number vectors)
+
+It is labelled strong (75% or more), good (50% or more) or partial, with the
+percentage. The ranker still decides the order, so a well-cited paper can sit
+above one with a slightly higher match.
+
+**Sorting by newest or most cited** now sorts only the papers whose match is
+at least 70% of the best match in the list (with merge sort, so ties keep their
+relevance order); the other papers follow in relevance order. The side panel
+says how many papers were sorted.
+
+**Measured result** (same 26 queries, same day):
+
+| top 10 of each query | relevance bar (3.5) | match (3.6) |
+|---|---|---|
+| median, sorted by relevance | 38% | 76% |
+| below 10%, sorted by relevance | 21% | 0% |
+| median, sorted by newest | 1% | 77% |
+| below 10%, sorted by newest | 60% | 0% |
+
+The weights were set by hand, not trained. On the rough title patterns of
+section 12 the match separates right from wrong titles better than the old bar
+(AUC 0.71 against 0.64), but those patterns miss many right papers, so this is
+only a sanity check. The lowest query, "self-driving cars seeing pedestrians at
+night", averages 35%: its papers cover only some of the words.
 
 ---
 

@@ -12,6 +12,9 @@ recency, peer review and venue quality.
   "nueral netwrok pruning" as "neural network pruning", and "latest research on
   X" keeps the last five years. The page says what it searched for, with a link
   to search the words exactly as typed.
+* Each result shows how well it matches your search (strong, good or partial,
+  with a percentage), from the words it shares with your query and its meaning.
+  Sorting by newest or most cited keeps the papers that match well first.
 * Everything runs online: no paper database on your disk. Papers fetched in a
   session stay in memory (up to 20,000, least recently used forgotten first), so a
   second search on the same topic is answered without asking the internet again.
@@ -130,6 +133,14 @@ fresh memory (`python scripts/check_queries.py`; `--exact` runs the old way):
 | median time per new query | 1.0 s | 1.7 s |
 
 ![Understood query](docs/understood.png)
+
+The match next to each result counts the query words found in the paper, those
+in its title, and closeness in meaning; citations and year are left out, so new
+papers and filtered lists are not shown as weak. Measured on the same 26
+queries with Internet set to "always", the median bar went from 38% to 76%, and
+when sorting by newest from 1% to 77% (docs/PROJECT.md, section 13).
+
+![Match and newest sort](docs/match.png)
 
 Every change is shown on the page ("Showing results for ...", the corrected
 words, what was left out) and can be undone with "Search instead for" (the API's
@@ -275,7 +286,7 @@ and the index is compacted, so search time stays flat as the session goes on.
 python -m unittest -v
 ```
 
-88 tests, no internet needed (a fake HTTP transport stands in for the APIs):
+89 tests, no internet needed (a fake HTTP transport stands in for the APIs):
 the data structures (heap, hash table, queue, BFS and year tree included), the in-memory index (BM25 against its formula, eviction,
 compaction), the online sources (cascade, cache, cool-down, deadline), query
 understanding (spelling, request words, recency, fusion), the pipeline end to end, LambdaMART, and the web API.

@@ -119,6 +119,12 @@ shown on the page and can be undone with "Search instead for"), and it raised
 precision@10 on 26 everyday queries from 0.69 to 0.81. Details and the
 measurement: docs/PROJECT.md, section 12.
 
+The bar next to each result (version 3.6) is a topic match (words found, words
+in the title, meaning), not the ranker's calibrated probability, which is a
+citation probability and stays low for sentences and new papers. Sorting by
+newest or most cited sorts only the papers that match well. See
+docs/PROJECT.md, section 13.
+
 ## What was removed, and why
 
 | Removed | Why |
