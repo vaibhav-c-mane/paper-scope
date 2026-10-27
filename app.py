@@ -1,14 +1,14 @@
-"""PaperScope - research paper search over OpenAlex, Semantic Scholar and Crossref,
+"""PaperScope - research paper search over OpenAlex, arXiv, Europe PMC, Semantic Scholar and Crossref,
 with an in-memory hybrid index (BM25 + embeddings) and a learned ranker.
 
 Run:  python app.py            then open http://127.0.0.1:5000
       PORT=8000 python app.py
       OPENALEX_EMAIL=you@uni.edu python app.py     (OpenAlex's faster "polite pool")
 
-Nothing is stored on disk while it runs: papers fetched from the internet are
-kept in memory (at most PAPERSCOPE_CAPACITY, default 20000, least recently used
-evicted first) and forgotten when the app stops. The only files read are the
-trained models in data/models/.
+Papers fetched from the internet are kept in memory (at most PAPERSCOPE_CAPACITY,
+default 20000, least recently used evicted first) and forgotten when the app stops.
+Nothing is written to disk unless you turn on the cache file (PAPERSCOPE_CACHE_FILE
+in .env), which keeps API answers between runs to save the daily OpenAlex budget.
 """
 import os
 
@@ -81,5 +81,6 @@ if __name__ == "__main__":
     application = create_app()
     s = application.config["pipeline"].state()
     print(f"PaperScope: ranker {s['ranker']['kind']}, lexicon of {s['lexicon'].get('vocabulary', 0):,} words, "
-          f"memory for {s['capacity']:,} papers. Searches go to OpenAlex -> Semantic Scholar -> Crossref.")
+          f"memory for {s['capacity']:,} papers. Searches go to OpenAlex, then arXiv or Europe PMC by field, "
+          f"Semantic Scholar and Crossref" + (" (cache file on)" if s["budget"].get("cache_file") else "") + ".")
     application.run(host="127.0.0.1", port=int(os.environ.get("PORT", "5000")), debug=False, threaded=True)

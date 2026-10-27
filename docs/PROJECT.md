@@ -1,17 +1,18 @@
 # PaperScope: project documentation
 
 This document describes PaperScope as the code in this folder implements it
-(version 4.0, 27 October 2026). Part 1 explains what the project does and how it
+(version 4.1, 27 October 2026). Part 1 explains what the project does and how it
 is built, including a plain explanation of the learned ranker (section 11), of
 how everyday queries are understood (section 12, new in 3.5), how the match
 shown next to each result is computed (section 13, new in 3.6), and how long
 queries, related papers and title suggestions work (sections 14 and 15, new in
-4.0). Part 2 justifies each core data structure, compares it with alternatives
+4.0), and how the free API budget is saved (section 16, new in 4.1). Part 2 justifies each core data structure, compares it with alternatives
 on small worked examples, records the three changes made after measuring them,
 and describes the hand-written structures added so that every syllabus unit
 does real work in the project: a heap, a hash table, a binary search tree and
 breadth-first search with a circular queue (3.4); an indexed priority queue
-with Dijkstra's shortest paths, and a radix trie (4.0).
+with Dijkstra's shortest paths, and a radix trie (4.0); a log-structured hash
+table for the optional cache file (4.1).
 
 Every number in this file was measured on the cloud machine used for the live
 tests, unless the text says otherwise. File references point to the code, so
@@ -109,7 +110,7 @@ paper-search/
 ├── requirements.txt        flask, numpy, scipy, scikit-learn (scikit-learn is needed for training only)
 ├── README.md               how to install, run, train; results; live test
 ├── RUN_ON_WINDOWS.md       step-by-step Windows instructions
-├── .env.example            template for API keys (copy to .env, which stays private)
+├── .env.example            template for API keys and budget settings (copy to .env, which stays private)
 ├── dsa/                    the syllabus data structures, written by hand
 │   ├── stack.py            array-based stack
 │   ├── expression.py       tokenizer, infix → postfix (shunting-yard), postfix evaluation
@@ -121,13 +122,14 @@ paper-search/
 │   ├── queue.py            circular queue on an array
 │   ├── priority_queue.py   indexed min-heap: priorities with decrease-key
 │   ├── graph.py            breadth-first search and Dijkstra's shortest paths over adjacency lists
-│   └── trie.py             radix trie (compressed prefix tree)
+│   ├── trie.py             radix trie (compressed prefix tree)
+│   └── logstore.py         log-structured hash table: append-only file + hash map of offsets
 ├── engine/                 the search engine
 │   ├── pipeline.py         SearchPipeline: the whole search flow
 │   ├── understand.py       QueryUnderstanding: spelling, request words, recency, query kind
 │   ├── memindex.py         PaperIndex: inverted index, vectors, metadata, eviction
 │   ├── lexicon.py          Lexicon: vocabulary, idf, TF-IDF columns, LSA embeddings
-│   ├── sources.py          OpenAlex, Semantic Scholar, Crossref clients and the cascade
+│   ├── sources.py          OpenAlex, arXiv, Europe PMC, Semantic Scholar, Crossref clients, the cascade, budget
 │   ├── ranker.py           GBDT (trees), linear and hand-set rankers
 │   ├── features.py         the nine ranking features
 │   ├── metadata.py         citations, recency, peer review, venue quality as 0..1 signals
@@ -162,7 +164,7 @@ paper-search/
 | `engine/understand.py` | `QueryUnderstanding` turns the typed text into what to search for: corrects typos with a noisy-channel spelling model whose word counts are the Lexicon's document frequencies, drops request words ("find me papers on"), turns "recent" / "latest" into a year filter, and says whether to also search by meaning or by title. |
 | `engine/memindex.py` | `PaperIndex` holds every fetched paper: forward index, inverted index with BM25 weights, embedding matrix, field probabilities, metadata columns, the identity-key hash table, the year tree, the citation graph and the LRU order used for eviction. |
 | `engine/lexicon.py` | `Lexicon` holds statistics learned once from 600,013 real OpenAlex works: the vocabulary (240,705 words), document frequencies (for idf), the TF-IDF columns and the LSA projection that turns text into 160-number vectors, and the field classifier. It stores no titles or abstracts. |
-| `engine/sources.py` | One client per API (`OpenAlex`, `SemanticScholar`, `Crossref`) that turns each answer into the common paper format (OpenAlex answers include each paper's reference list). `ScholarlyClient` runs the cascade, caches answers in an LRU with expiry, skips a provider that just failed (for a minute, or as long as its rate limit asks, at most 6 hours), gives every later provider 1.5 s of the deadline, and rate-limits each provider with a token bucket. API keys come from `OPENALEX_API_KEY` and `S2_API_KEY` or from a private `.env` file. |
+| `engine/sources.py` | One client per API (`OpenAlex`, `ArXiv`, `EuropePMC`, `SemanticScholar`, `Crossref`) that turns each answer into the common paper format (OpenAlex answers include each paper's reference list). `ScholarlyClient` runs the cascade, caches answers in an LRU with expiry, skips a provider that just failed (for a minute, or as long as its rate limit asks, at most 6 hours), gives each of the next two providers 1.5 s of the deadline, reads the day's OpenAlex budget from the answers' headers and turns on saver mode below 20% (section 16), routes by field to arXiv or Europe PMC, and can keep answers in the optional cache file (2.15), and rate-limits each provider with a token bucket. API keys come from `OPENALEX_API_KEY` and `S2_API_KEY` or from a private `.env` file. |
 | `engine/ranker.py` | `GBDTRanker` (the shipped model, 153 trees), `LinearRanker` (baseline) and `HeuristicRanker` (hand-set weights, used if no model is trained). Each gives a raw score and a 0..1 relevance (Platt scaling). Models are plain JSON. |
 | `engine/features.py`, `engine/metadata.py` | The nine features. Metadata features are 0..1, or −1 when unknown, so trees can treat "unknown" separately from "bad". |
 | `engine/domains.py` | Maps arXiv categories and OpenAlex topics to 13 fields; a logistic-regression classifier predicts the field of text that has no label (queries, Crossref papers). |
@@ -193,6 +195,7 @@ paper-search/
 | Weighted graph (citation, related-work and similarity edges) + indexed priority queue + Dijkstra | `engine/memindex.py` (`weighted_neighbours`, `related`), `dsa/priority_queue.py`, `dsa/graph.py` | Related papers, closest first by shortest path |
 | Radix trie keyed by normalised title | `dsa/trie.py`, used by `engine/memindex.py` (`titles`) | Title suggestions while typing |
 | Binary search in each paper's sorted word ids | `engine/pipeline.py` (`_missing_words`) | "Missing: night" under a result |
+| Log-structured hash table (append-only file + hash map key → offset) | `dsa/logstore.py`, used by `engine/sources.py` (`TieredCache`) | The optional cache file of API answers |
 
 ## 6. How the components interact
 
@@ -319,7 +322,10 @@ $0.001 of a $1 daily allowance.
 * **API keys and limits.** OpenAlex needs a free key once the shared budget is
   used up; Semantic Scholar mostly answers "too many requests" without a key;
   Crossref often has no abstracts, which weakens word and meaning features for
-  its papers.
+  its papers. arXiv gives no citation counts. arXiv and Europe PMC were tested
+  with recorded answers only, because the test machine could not reach them.
+* **Cache file for one app at a time.** Two copies of the app writing the same
+  cache file at once would mix their lines; use one file per running app.
 * **Ranker trained offline.** The shipped models were trained on a snapshot pool
   (`--pool`), because the APIs were not reachable when they were built. Live
   online training works, but only about 1 in 7 live citation queries finds a
@@ -386,7 +392,7 @@ suggestions), each for a job the search did badly or not at all before.
 | 3 Stacks and queues | Array-based stack; infix → postfix; postfix evaluation; circular queue; priority queue (indexed, with decrease-key) | Boolean queries use two stacks; the BFS for citation links keeps its frontier in a circular queue; Dijkstra for related papers keeps its frontier in the priority queue; the radix trie is walked with a stack | Linked-list stack (no advantage, see 2.6); deque, Josephus: no job in the search |
 | 4 Trees | Binary search tree (insert, delete, range search by pruned in-order traversal); binary trees in array representation; non-recursive traversal; trie (radix, with insert, delete and prefix search) | The year tree answers year-range filters; the ranker's 153 regression trees are stored as arrays and walked iteratively; a radix trie (a general tree whose edges carry substrings) suggests titles | Threaded trees, general-tree conversion, AVL or red-black balancing (the year tree has a few hundred nodes at most and is rebuilt balanced at every compaction) |
 | 5 Graphs | Adjacency lists; breadth-first search; weighted graph; Dijkstra's shortest paths | Citation links: BFS over the citation graph of the papers in memory; related papers: Dijkstra over citation, related-work and similarity edges weighted by how different two papers are (2.13); the citation graph also gives training labels in `ml/dataset.py` | DFS (its order is not "closest first", see 2.12); spanning trees (no job: the drawer needs the papers nearest one paper, not a tree joining all of them) |
-| 6 Hashing | Hash function (polynomial rolling hash); collision resolution by separate chaining; load factor and rehashing | The identity-key table that merges duplicate papers is written by hand (`dsa/hashtable.py`); the vocabulary, the LRU map and the API cache use Python's dict | Open addressing written by hand (separate chaining is simpler to delete from); a hand-written table for the vocabulary (240,705 words: Python's dict is about 80 times faster there and the vocabulary is read for every word of every paper) |
+| 6 Hashing | Hash function (polynomial rolling hash); collision resolution by separate chaining; load factor and rehashing; hash index over a file (log-structured hash table) | The identity-key table that merges duplicate papers is written by hand (`dsa/hashtable.py`); the optional cache file is an append-only log with a hash map from each key to its record's offset (`dsa/logstore.py`, 2.15); the vocabulary, the LRU map and the API cache use Python's dict | Open addressing written by hand (separate chaining is simpler to delete from); a hand-written table for the vocabulary (240,705 words: Python's dict is about 80 times faster there and the vocabulary is read for every word of every paper) |
 
 ## 11. How the learned ranker works, step by step
 
@@ -636,6 +642,64 @@ clicking one opens the paper. The titles live in a radix trie (2.14), updated
 when papers are added, evicted or renumbered. On the same 1,206 papers (82,767
 title characters) the trie has 1,865 nodes, and a suggestion takes 0.10 ms
 median.
+
+## 16. Saving the API budget (version 4.1)
+
+A free OpenAlex key gives $1 a day. Each answer says what it cost and what is
+left, in its headers: `X-RateLimit-Cost-USD` ($0.001 for a search, $0.0001 for
+a lookup by id or a citation filter), `X-RateLimit-Remaining-USD`,
+`X-RateLimit-Limit-USD` and `X-RateLimit-Reset` (seconds until the budget is
+full again). A new question starts up to four searches: keywords, by meaning
+(sentences), with fewer words (long queries) and by title (title-like
+queries). Version 4.1 adds four free ways to spend less:
+
+1. **Budget meter.** `Http.fetch` hands every answer's headers to
+   `Budget.observe` (engine/sources.py). The page header and `/api/state` show
+   the remaining budget, when it is full again, and what this app has spent
+   since it started.
+2. **Saver mode.** `ScholarlyClient.saver()` turns it on when less than 20% of
+   the day's budget is left, when OpenAlex has said the budget is used up, or
+   when `PAPERSCOPE_SAVER=on`. Then `plan()` asks the free source for the
+   query's field first, then Semantic Scholar, then OpenAlex, then Crossref, and
+   the pipeline skips the three extra OpenAlex searches. The side panel says so.
+3. **Free sources by field.** `ArXiv` (Atom XML, no key, one request every 3
+   seconds as arXiv asks) for computer science, physics, mathematics and
+   statistics; `EuropePMC` (JSON, no key) for biology and medicine. The field is
+   the one chosen in the form, or the field classifier's guess for the query
+   text (engine/domains.py). Outside saver mode the free source comes right
+   after OpenAlex, so it is asked when OpenAlex fails or finds fewer than 25
+   papers. arXiv gives no citation counts, so its papers rank on words, meaning,
+   field and recency.
+4. **Cache file, opt-in.** `PAPERSCOPE_CACHE_FILE` in `.env` adds a second
+   level under the in-memory LRU (`TieredCache`): answers are also written to a
+   log-structured hash table on disk (2.15) and kept for 7 days. A miss in
+   memory looks in the file and copies the answer back into memory. "Not found"
+   answers are not written. With the variable empty (the default) nothing is
+   written to disk, as before.
+
+Requests are not sent through several OpenAlex accounts to get more budget:
+that is against OpenAlex's terms and can get the key blocked.
+
+**Measured** on the 27 live check queries, a fresh memory for each:
+
+| Mode | OpenAlex cost | Right titles in the top 10 | First result right | Median time |
+|---|---|---|---|---|
+| Normal | $0.072 (72 searches) | 81% | 26 of 27 | 1.8 s |
+| Saver | $0.023 | 81% | 24 of 27 | 2.8 s |
+
+The normal row's quality and time are from the 4.0 run (that path did not
+change); its cost counts the searches each query starts. Saver mode lost the
+first place on "make neural networks smaller so they run on phones" (2nd),
+"self-driving cars seeing pedestrians at night" (6th) and "translating
+languages without parallel data" (2nd), the queries the search by meaning had
+helped most. The test machine could not reach arXiv or Europe PMC (its network
+allows only some hosts) and Semantic Scholar answered "too many requests", so
+those attempts only added time, and every saver search ended at one OpenAlex
+keyword search. On a normal connection the free sources answer first.
+
+The cache file, on 500 answers of 50 papers each (37.5 MB): writing an answer
+0.29 ms, reading one 0.20 ms, rebuilding the hash map when the app starts
+110 ms. An OpenAlex search takes about 1 s.
 
 ---
 
@@ -1218,6 +1282,45 @@ Why: titles arrive and leave all the time (every new search adds up to 175 paper
 eviction removes the oldest), so a structure with cheap insert and remove fits
 better than a sorted list, and merging chains keeps the node count near the
 number of titles instead of the number of characters.
+
+## 2.15 Log-structured hash table for the cache file (added in 4.1)
+
+**What it is.** `dsa/logstore.py` keeps records in a file that is only ever
+appended to, one JSON line per record (key, expiry time, value), and a hash map
+in memory from each key to the offset and length of its newest line. `get`
+is one seek and one read. An update appends a new line and moves the map's
+pointer; the old line becomes garbage. When the file has more than twice as
+many lines as live keys (plus 1,000), or is over its size limit, `compact`
+copies only the newest unexpired records to a new file and swaps it in; if that
+is still over half the limit, the oldest records are dropped. Loading reads the
+log once from start to end, so later lines win; a half-written last line from a
+crash is cut off.
+
+```
+=== Example 15: cache file (log-structured hash table)
+writes    put gnn, put qec, put gnn again
+chosen    append-only log + hash map key -> (offset, length):
+          offset   0: ["q:graph neural networks",null,["W1","W2"]]
+          offset  45: ["q:quantum error correction",null,["W7"]]
+          offset  88: ["q:graph neural networks",null,["W1","W2","W3"]]
+          map: {'q:graph neural networks': (88, 50), 'q:quantum error correction': (45, 43)}
+          get gnn = one seek to offset 88: ['W1', 'W2', 'W3']
+          after a restart: the map is rebuilt by reading the log once -> 2 keys from 3 lines
+          compact(): 2 lines, 93 bytes (the old gnn line is gone)
+alt. 1    one JSON file rewritten on every put: O(size of the whole cache) per write, and a crash mid-write loses everything
+alt. 2    a database (SQLite, a B-tree on disk): O(log n) per lookup, not hand-written, more than a cache of whole answers needs
+```
+
+| | Write an answer | Read an answer | Memory | After a crash |
+|---|---|---|---|---|
+| **Chosen: append-only log + hash map** | O(1) append | O(1) seek | one entry per key, values stay on disk | at most the last line is lost |
+| Alt. 1: one JSON file, rewritten | O(whole file) | O(1) once all is loaded | every value in memory | the whole file can be lost |
+| Alt. 2: SQLite (B-tree on disk) | O(log n) | O(log n) | page cache | safe (journal) |
+
+Why: the cache is written once per new question and read on every repeat, and
+its values are whole answers of 50 papers (about 75 KB), so keeping only
+offsets in memory and never rewriting old bytes fits it. The garbage left by
+updates is the price, paid back by compaction.
 
 ## Verification of the changes
 

@@ -83,3 +83,4 @@ mark { background: var(--accent-soft); color: inherit; border-radius: 3px; paddi
 .related li { margin: 4px 0; }
 .feat td { padding: 2px 8px 2px 0; }
 .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+.budget.low { color: var(--bad); font-weight: 600; }

@@ -335,13 +335,13 @@ class SearchPipeline:
             trace["online"] = {"used": False, "reason": "not connected" if self.client is None and go_online
                                else f"{confident} confident matches in memory" if external == "auto" else "turned off"}
             return keys_out
-        papers, report, t0, parts = self._search_online(parsed, understood, year_from, year_to)
+        papers, report, t0, parts, saving = self._search_online(parsed, understood, year_from, year_to, field)
         with self.lock:
             ids = self.index.add(papers)
             trace["online"] = {"used": True, "providers": report, "fetched": len(papers),
                                "new": self.index.added,
                                "reason": "requested" if external == "always" else f"only {confident} confident matches in memory",
-                               "ms": round((time.perf_counter() - t0) * 1000, 1)}
+                               "ms": round((time.perf_counter() - t0) * 1000, 1), **saving}
             rows = self._rank_local(parsed, filters, mode, r, forced=ids, trace=trace)
             if mode == "learned":
                 start, lists, names = 0, [], []
@@ -380,15 +380,35 @@ class SearchPipeline:
         ordered = merge_sort(list(zip(tiers, range(len(rows)))), key=lambda tr: tr[0], reverse=True)   # stable
         return [rows[i] for _, i in ordered]
 
-    def _search_online(self, parsed, understood, year_from, year_to):
+    def _query_field(self, text, field=None):
+        """The research field that picks the free source: the user's choice, else the classifier's guess."""
+        if field in DOMAINS:
+            return field
+        toks = terms(text)
+        if not toks:
+            return None
+        p = self.lex.text_features([([], toks)])[1][0]
+        return DOMAINS[int(np.argmax(p))]
+
+    def _search_online(self, parsed, understood, year_from, year_to, field=None):
         """Keyword search through the provider cascade; for a sentence also OpenAlex's search by
         meaning, for a title-like query also its search by title. They run at the same time.
-        Returns (papers, report, start time, [(part name, number of papers)] in papers' order)."""
+        In saver mode (the day's OpenAlex budget is nearly used up) the extra searches are skipped.
+        Returns (papers, report, start time, [(part name, number of papers)] in papers' order,
+        what was done to save budget, for the trace)."""
         t0 = time.perf_counter()
         text = parsed["raw"]
         plain = " ".join(t for t in text.split() if not t.startswith("-")).replace("*", "")
+        saver, why = self.client.saver() if hasattr(self.client, "saver") else (False, "")
+        qfield = self._query_field(plain, field)
+        saving = {"field_source": qfield}
         extra = []
-        if understood is not None and hasattr(self.client, "search_openalex"):
+        if saver:
+            u = understood or {}
+            skipped = [label for on, label in ((u.get("semantic"), "by meaning"), (u.get("relaxed"), "with fewer words"),
+                                               (u.get("title"), "by title")) if on]
+            saving["saver"] = {"reason": why, "skipped": skipped}
+        elif understood is not None and hasattr(self.client, "search_openalex"):
             if understood["semantic"]:
                 extra.append(("semantic", self.pool.submit(self.client.search_openalex, "semantic", plain,
                                                            self.ONLINE_LIMIT, year_from=year_from, year_to=year_to)))
@@ -399,7 +419,8 @@ class SearchPipeline:
                 extra.append(("titles", self.pool.submit(self.client.search_openalex, "titles", plain,
                                                          self.N_TITLES, year_from=year_from, year_to=year_to)))
         try:
-            papers, report = self.client.search(text, limit=self.ONLINE_LIMIT, year_from=year_from, year_to=year_to)
+            papers, report = self.client.search(text, limit=self.ONLINE_LIMIT, year_from=year_from, year_to=year_to,
+                                                **({"field": qfield, "saver": saver} if hasattr(self.client, "saver") else {}))
         except Exception as e:                          # an API problem never breaks the search
             papers, report = [], [{"provider": "online", "ok": False, "error": f"{type(e).__name__}: {e}"[:160]}]
         parts = [("keyword", len(papers))]
@@ -411,7 +432,9 @@ class SearchPipeline:
             papers = papers + found                     # duplicates are merged by PaperIndex.add
             report = report + [entry]
             parts.append((name, len(found)))
-        return papers, report, t0, parts
+        if hasattr(self.client, "budget"):
+            saving["budget"] = self.client.budget()
+        return papers, report, t0, parts, saving
 
     def _identifier(self, ident, external, trace):
         kind, value = ident
@@ -588,4 +611,6 @@ class SearchPipeline:
             s = self.index.stats()
         s.update({"ranker": self.ranker.describe(), "lexicon": self.lex.info,
                   "online": self.client is not None, "fields": DOMAINS})
+        if hasattr(self.client, "budget"):
+            s["budget"] = self.client.budget()
         return s

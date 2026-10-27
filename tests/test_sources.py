@@ -1,10 +1,13 @@
 """Online sources: cascade, in-memory cache, cool-down, deadline, batching, normalisation.
 No test touches the network: every HTTP call goes to a FakeTransport."""
+import os
+import tempfile
 import unittest
 import urllib.parse
+from unittest import mock
 
 from engine.papers import paper_from_openalex
-from engine.sources import RateLimiter, api_query, openalex_number
+from engine.sources import ArXiv, Budget, Http, RateLimiter, api_query, openalex_number
 from tests.fixtures import FakeClock, client_with, ok, openalex_work, s2_paper, timeout
 
 
@@ -185,6 +188,146 @@ class ClientTests(unittest.TestCase):
             rl.acquire()
         self.assertEqual(clock.slept, [0.5, 0.5])
         self.assertFalse(rl.acquire(deadline=clock.t + 0.1))
+
+
+# what export.arxiv.org answers (Atom XML), shortened from a real response
+ARXIV_FEED = b"""<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom" xmlns:arxiv="http://arxiv.org/schemas/atom">
+  <entry>
+    <id>http://arxiv.org/abs/2104.01234v2</id>
+    <published>2021-04-03T10:00:00Z</published>
+    <title>Deep Reinforcement Learning for
+      Autonomous Navigation</title>
+    <summary>  We train a navigation policy with deep reinforcement learning.  </summary>
+    <author><name>Ada Lovelace</name></author>
+    <author><name>Alan Turing</name></author>
+    <arxiv:doi>10.1109/LRA.2021.1</arxiv:doi>
+    <arxiv:journal_ref>IEEE RA-L 6 (2021)</arxiv:journal_ref>
+    <link href="http://arxiv.org/abs/2104.01234v2" rel="alternate" type="text/html"/>
+    <link title="pdf" href="http://arxiv.org/pdf/2104.01234v2" rel="related" type="application/pdf"/>
+    <arxiv:primary_category term="cs.RO"/>
+    <category term="cs.LG"/>
+    <category term="cs.RO"/>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2201.00002v1</id>
+    <published>2022-01-01T00:00:00Z</published>
+    <title>A preprint without a journal</title>
+    <summary>Abstract.</summary>
+    <author><name>Grace Hopper</name></author>
+    <link href="http://arxiv.org/abs/2201.00002v1" rel="alternate" type="text/html"/>
+    <category term="cs.LG"/>
+  </entry>
+</feed>"""
+
+EPMC = {"hitCount": 2, "resultList": {"result": [
+    {"id": "12345", "source": "MED", "pmid": "12345", "doi": "10.1038/S41586-1", "title": "CRISPR off-target effects.",
+     "authorString": "Doudna J, Charpentier E.", "pubYear": "2019", "abstractText": "We measure <i>off-target</i> edits.",
+     "journalInfo": {"journal": {"title": "Nature"}}, "citedByCount": 321,
+     "fullTextUrlList": {"fullTextUrl": [{"availabilityCode": "OA", "documentStyle": "html", "url": "https://x/html"},
+                                         {"availabilityCode": "OA", "documentStyle": "pdf", "url": "https://x/pdf"}]}},
+    {"id": "PPR1", "source": "PPR", "title": "A bioRxiv preprint", "pubYear": "2024", "citedByCount": 0},
+]}}
+
+
+def budget_headers(left, limit=1, cost=0.001, reset=3600):
+    return {"X-RateLimit-Remaining-USD": str(left), "X-RateLimit-Limit-USD": str(limit),
+            "X-RateLimit-Cost-USD": str(cost), "X-RateLimit-Reset": str(reset)}
+
+
+class FreeSourceTests(unittest.TestCase):
+    def test_arxiv_atom_is_parsed(self):
+        papers = ArXiv(Http()).parse(ARXIV_FEED)
+        a, b = papers
+        self.assertEqual(a["arxiv_id"], "2104.01234")
+        self.assertEqual(a["title"], "Deep Reinforcement Learning for Autonomous Navigation")
+        self.assertEqual((a["authors"], a["year"], a["categories"]), ("Ada Lovelace, Alan Turing", 2021, "cs.RO cs.LG"))
+        self.assertEqual((a["doi"], a["venue"], a["published"]), ("10.1109/lra.2021.1", "IEEE RA-L 6 (2021)", True))
+        self.assertEqual((a["oa_url"], a["citations"]), ("http://arxiv.org/pdf/2104.01234v2", None))
+        self.assertEqual((b["published"], b["doi"]), (False, None))
+
+    def test_arxiv_query_syntax(self):
+        self.assertEqual(ArXiv.search_query("the protein folding -review"),
+                         "all:protein AND all:folding ANDNOT all:review")
+        self.assertEqual(ArXiv.search_query("qubits", 2020, 2022),
+                         "all:qubits AND submittedDate:[202001010000 TO 202212312359]")
+        self.assertEqual(ArXiv.search_query("the of"), "")
+
+    def test_europe_pmc_results(self):
+        client, transport, _ = client_with({"ebi.ac.uk/europepmc": ok(EPMC)}, order=(), field_sources=("europepmc",))
+        papers, report = client.search("crispr off-target", limit=10, field="Biology & Medicine", year_from=2018)
+        a, b = papers
+        self.assertEqual((a["title"], a["doi"], a["venue"], a["citations"]), ("CRISPR off-target effects", "10.1038/s41586-1", "Nature", 321))
+        self.assertEqual((a["abstract"], a["oa_url"], a["published"]), ("We measure off-target edits.", "https://x/pdf", True))
+        self.assertEqual((b["published"], b["venue"]), (False, ""))
+        self.assertEqual(report[0]["provider"], "Europe PMC")
+        self.assertIn("PUB_YEAR:[2018 TO 2100]", query_of(transport.calls[0]["url"])["query"])
+
+    def test_the_field_picks_the_free_source(self):
+        client, _, _ = client_with({}, field_sources=("arxiv", "europepmc"))
+        self.assertEqual(client.plan("Robotics & Control"), ["openalex", "arxiv", "semanticscholar", "crossref"])
+        self.assertEqual(client.plan("Biology & Medicine"), ["openalex", "europepmc", "semanticscholar", "crossref"])
+        self.assertEqual(client.plan("Economics & Finance"), ["openalex", "semanticscholar", "crossref"])
+        self.assertEqual(client.plan(None), ["openalex", "semanticscholar", "crossref"])
+        self.assertEqual(client.plan("Biology & Medicine", saver=True), ["europepmc", "semanticscholar", "openalex", "crossref"])
+
+    def test_arxiv_answers_when_openalex_is_out_of_budget(self):
+        used_up = lambda method, url, body: (429, {"Retry-After": "40000"}, {"message": "Insufficient budget."})
+        client, transport, _ = client_with({"api.openalex.org": used_up, "export.arxiv.org": lambda m, u, b: (200, {}, ARXIV_FEED)},
+                                           order=("openalex",), field_sources=("arxiv",))
+        papers, report = client.search("reinforcement navigation", limit=4, field="Robotics & Control")
+        self.assertEqual([r["provider"] for r in report], ["OpenAlex", "arXiv"])
+        self.assertEqual(len(papers), 2)
+        self.assertTrue(client.saver()[0])                                  # used up: saver mode from now on
+        client.search("another query", limit=4, field="Robotics & Control")
+        self.assertEqual(len(transport.urls("openalex")), 1)               # free source first, OpenAlex not asked
+        self.assertEqual(transport.urls("arxiv")[-1].count("all%3Aanother"), 1)
+
+
+class BudgetTests(unittest.TestCase):
+    def test_headers_are_read_and_saver_mode_starts_below_a_fifth(self):
+        state = {"left": 0.5}
+        works = [openalex_work(f"Surface codes {i}") for i in range(4)]
+        route = lambda method, url, body: (200, budget_headers(state["left"]), {"results": works})
+        client, _, clock = client_with({"api.openalex.org": route}, order=("openalex",))
+        self.assertEqual(client.budget()["known"], False)
+        client.search("surface codes")
+        b = client.budget()
+        self.assertEqual((b["remaining_usd"], b["limit_usd"], b["share"], b["spent_usd"], b["saver"]), (0.5, 1.0, 0.5, 0.001, False))
+        state["left"] = 0.15
+        client.search("toric codes")
+        self.assertEqual(client.saver(), (True, "only 15% of today's OpenAlex budget is left"))
+        clock.t += 3601                                                     # the day's budget is full again
+        self.assertEqual((client.budget()["share"], client.saver()[0]), (1.0, False))
+
+    def test_saver_can_be_forced_on_or_off(self):
+        client, _, _ = client_with({}, order=("openalex",))
+        with mock.patch.dict(os.environ, {"PAPERSCOPE_SAVER": "on"}):
+            self.assertTrue(client.saver()[0])
+        b = Budget()
+        b.observe(budget_headers(0.01))
+        client.providers["openalex"].budget = b
+        with mock.patch.dict(os.environ, {"PAPERSCOPE_SAVER": "off"}):
+            self.assertFalse(client.saver()[0])
+        self.assertTrue(client.saver()[0])
+
+
+class CacheFileTests(unittest.TestCase):
+    def test_answers_survive_a_restart_and_not_found_is_not_written(self):
+        works = [openalex_work(f"Protein folding paper {i}") for i in range(8)]
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "api-cache.jsonl")
+            client, transport, _ = client_with({"api.openalex.org/works": ok({"results": works})},
+                                               order=("openalex",), cache_file=path)
+            client.search("protein folding", limit=10)
+            client.get_paper("10.9/missing")                               # not found: memory only
+            client.cache.disk.close()
+            restarted, transport2, _ = client_with({}, order=("openalex",), cache_file=path)
+            papers, report = restarted.search("Protein folding", limit=10)
+            self.assertEqual((len(papers), report[0]["cached"], transport2.calls), (8, True, []))
+            self.assertEqual(restarted.budget()["cache_file_hits"], 1)
+            self.assertEqual(len(restarted.cache.disk), 1)
+            restarted.cache.disk.close()
 
 
 class NormaliseTests(unittest.TestCase):

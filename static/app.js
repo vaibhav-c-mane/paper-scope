@@ -19,12 +19,28 @@ async function getJSON(url) {
 async function refreshState() {
   try {
     const s = await getJSON("/api/state");
-    $("state").textContent = `${s.papers_in_memory.toLocaleString()} / ${s.capacity.toLocaleString()} papers in memory · ` +
-      `ranker: ${s.ranker.kind}${s.ranker.trees ? ` (${s.ranker.trees} trees)` : ""} · ` + (s.online ? "online" : "offline");
+    $("state").innerHTML = esc(`${s.papers_in_memory.toLocaleString()} / ${s.capacity.toLocaleString()} papers in memory · ` +
+      `ranker: ${s.ranker.kind}${s.ranker.trees ? ` (${s.ranker.trees} trees)` : ""} · ` + (s.online ? "online" : "offline")) +
+      budgetHTML(s.budget);
     if ($("field").options.length === 1) {
       for (const f of s.fields) $("field").insertAdjacentHTML("beforeend", `<option>${esc(f)}</option>`);
     }
   } catch (e) { $("state").textContent = "server not reachable"; }
+}
+
+function budgetHTML(b) {
+  // the day's OpenAlex budget as its last answer reported it (engine/sources.py, Budget)
+  if (!b || (!b.known && !b.saver)) return "";
+  const resets = b.resets_in_s != null ? `, full again in ${duration(b.resets_in_s)}` : "";
+  const tip = (b.saver ? `Saver mode: ${b.saver_reason}. Free sources are asked first. ` : "") +
+    `This app has spent $${b.spent_usd.toFixed(4)} in ${b.requests} OpenAlex requests since it started` +
+    (b.cache_file ? `; ${b.cache_file_hits} answers came from the cache file` : "") + ".";
+  const left = b.known ? `OpenAlex budget: $${b.remaining_usd.toFixed(3)} of $${b.limit_usd.toFixed(2)} left${resets}` : "";
+  return ` · <span class="budget${b.saver ? " low" : ""}" title="${esc(tip)}">${esc(left)}${b.saver ? `${left ? " · " : ""}saver mode` : ""}</span>`;
+}
+
+function duration(s) {
+  return s >= 5400 ? `${Math.round(s / 3600)} h` : s >= 90 ? `${Math.round(s / 60)} min` : `${Math.round(s)} s`;
 }
 
 // ------------------------------------------------------------------ search
@@ -147,7 +163,10 @@ function renderTrace(t) {
     if (o.used) {
       rows.push(`<table>${o.providers.map((p) => `<tr><td>${esc(p.provider)}</td><td class="${p.ok ? "ok" : "err"}">` +
         `${p.ok ? `${p.results} papers${p.cached ? " (cached)" : ""}` : esc(p.error || "failed")}</td><td>${p.ms ?? ""} ms</td></tr>`).join("")}</table>` +
-        `<div class="small muted">${o.fetched} fetched, ${o.new} new to memory, ${o.ms} ms</div>`);
+        `<div class="small muted">${o.fetched} fetched, ${o.new} new to memory, ${o.ms} ms` +
+        (o.field_source ? ` · free source chosen for ${esc(o.field_source)}` : "") + `</div>` +
+        (o.saver ? `<div class="small budget low">Saver mode: ${esc(o.saver.reason)}. Free sources were asked first` +
+          (o.saver.skipped.length ? `, and the extra searches ${o.saver.skipped.map(esc).join(", ")} were skipped` : "") + ".</div>" : ""));
     }
   }
   if (t.candidates) {

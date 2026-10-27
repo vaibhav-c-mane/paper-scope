@@ -1,5 +1,7 @@
 """The hand-written syllabus structures the engine uses. Run: python -m unittest -v"""
+import os
 import random
+import tempfile
 import unittest
 
 from dsa.bst import YearTree
@@ -7,6 +9,7 @@ from dsa.graph import bfs, dijkstra
 from dsa.hashtable import HashTable
 from dsa.heap import MinHeap, top_k
 from dsa.expression import evaluate_postfix, infix_to_postfix, tokenize_query
+from dsa.logstore import LogStore
 from dsa.lru import LRUCache
 from dsa.merge import difference, intersect, merge, merge_sort, union
 from dsa.priority_queue import IndexedMinPQ
@@ -294,6 +297,75 @@ class YearTreeTests(unittest.TestCase):
             grown.insert(y, d)
         self.assertEqual((grown.height(), built.height()), (127, 7))
         self.assertEqual(built.range(1950, 1960), grown.range(1950, 1960))
+
+
+class LogStoreTests(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self.dir.name, "sub", "cache.jsonl")
+        self.now = [1000.0]
+
+    def tearDown(self):
+        self.dir.cleanup()
+
+    def store(self, **kw):
+        return LogStore(self.path, clock=lambda: self.now[0], **kw)
+
+    def test_put_get_overwrite_delete_and_reload(self):
+        s = self.store()
+        s.put("a", [1, 2])
+        s.put("b", {"x": "y"})
+        s.put("a", [3])                                     # the old line stays in the log as garbage
+        s.delete("b")
+        self.assertEqual((s.get("a"), s.get("b"), len(s), s.lines), ([3], None, 1, 4))
+        s.close()
+        again = self.store()                                # a restart rebuilds the hash map from the log
+        self.assertEqual((again.get("a"), again.get("b"), len(again)), ([3], None, 1))
+        again.close()
+
+    def test_expired_records_are_gone_also_after_a_restart(self):
+        s = self.store()
+        s.put("short", "v", ttl=10)
+        s.put("long", "v", ttl=1000)
+        self.now[0] += 11
+        self.assertEqual((s.get("short"), s.get("long")), (None, "v"))
+        s.close()
+        again = self.store()
+        self.assertEqual(len(again), 1)
+        again.close()
+
+    def test_a_torn_last_line_is_cut_off(self):
+        s = self.store()
+        s.put("a", "kept")
+        s.close()
+        with open(self.path, "ab") as f:
+            f.write(b'["b",null,"half writ')                # the app stopped in the middle of a write
+        s = self.store()
+        self.assertEqual((s.get("a"), s.get("b")), ("kept", None))
+        s.put("c", "new")                                   # appends after the good part, not after the torn bytes
+        s.close()
+        s = self.store()
+        self.assertEqual((s.get("a"), s.get("c"), s.lines), ("kept", "new", 2))
+        s.close()
+
+    def test_compaction_keeps_the_newest_records(self):
+        s = self.store()
+        for i in range(1500):
+            s.put("k%d" % (i % 10), i)                      # 1,500 lines for 10 keys: compaction runs
+        self.assertLess(s.lines, 1100)
+        self.assertEqual([s.get("k%d" % i) for i in range(10)], [1490 + i for i in range(10)])
+        s.compact()
+        self.assertEqual((s.lines, os.path.getsize(self.path)), (10, s.size))
+        s.close()
+
+    def test_over_the_size_limit_the_oldest_records_go(self):
+        s = self.store(max_bytes=2000)
+        for i in range(60):
+            s.put("key%02d" % i, "x" * 40)
+        self.assertLessEqual(os.path.getsize(self.path), 2000)
+        self.assertIsNone(s.get("key00"))
+        self.assertEqual(s.get("key59"), "x" * 40)
+        s.close()
 
 
 if __name__ == "__main__":

@@ -73,7 +73,7 @@ class FakeTransport:
         for part, handler in self.routes.items():
             if part in url:
                 status, hdrs, data = handler(method, url, body)
-                return status, hdrs, json.dumps(data).encode("utf-8")
+                return status, hdrs, data if isinstance(data, bytes) else json.dumps(data).encode("utf-8")
         return 404, {}, b""
 
     def urls(self, part=""):
@@ -93,6 +93,8 @@ def client_with(routes, order=("openalex", "semanticscholar", "crossref"), **kw)
     clock = FakeClock()
     transport = FakeTransport(routes)
     http = Http(transport=transport, timeout=2, retries=1, sleep=clock.sleep, clock=clock)
+    kw.setdefault("field_sources", ())         # the free field sources only where a test asks for them
+    kw.setdefault("cache_file", None)          # never the cache file from a developer's .env
     return ScholarlyClient(order=order, http=http, **kw), transport, clock
 
 

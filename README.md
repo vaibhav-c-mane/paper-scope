@@ -2,7 +2,7 @@
 
 Type a topic in your own words, even as a sentence or with typos. PaperScope
 first works out what you are looking for, then looks it up on **OpenAlex** (then
-Semantic Scholar and Crossref if needed), keeps the papers it fetched in a small
+the free arXiv or Europe PMC, Semantic Scholar and Crossref if needed), keeps the papers it fetched in a small
 in-memory index, and ranks them with a **learning-to-rank model** (gradient-boosted
 trees, LambdaMART) that combines word match, meaning, research field, citations,
 recency, peer review and venue quality.
@@ -31,6 +31,10 @@ recency, peer review and venue quality.
 * A long query is also searched without its least related words, so a paper
   that skips a word ("night") is still found; each result says which of your
   words it is missing.
+* It looks after the free OpenAlex budget ($1 a day): the page shows how much is
+  left, and below 20% a saver mode asks free sources first (arXiv, Europe PMC,
+  no key needed) and skips the optional extra searches. An optional cache file
+  keeps answers between runs, so a repeated question costs nothing.
 
 Why each design choice was made: [docs/DESIGN.md](docs/DESIGN.md).
 
@@ -55,7 +59,9 @@ Web app:
 python app.py                                   # open http://127.0.0.1:5000
 OPENALEX_API_KEY=your_key python app.py         # OpenAlex needs a free key (or put it in .env, see below)
 OPENALEX_EMAIL=you@uni.edu python app.py        # your email in requests (polite pool for OpenAlex and Crossref)
-S2_API_KEY=your_key python app.py               # optional Semantic Scholar key (shared pool is often busy)
+S2_API_KEY=your_key python app.py               # optional free Semantic Scholar key (shared pool is often busy)
+PAPERSCOPE_SAVER=on python app.py               # always save the OpenAlex budget (auto: below 20% left)
+PAPERSCOPE_CACHE_FILE=data/cache/api-cache.jsonl python app.py   # keep API answers between runs (off by default)
 PAPERSCOPE_CAPACITY=5000 python app.py          # keep at most 5,000 papers in memory
 ```
 
@@ -171,6 +177,38 @@ puts it 2nd. On the 27 live check queries: right titles in the top 10 81%
 median 1.8 s per new query (1.0 s).
 
 ![Related papers](docs/related.png)
+
+## Saving the API budget
+
+A free OpenAlex key gives $1 a day. A search costs $0.001 and a lookup by id
+$0.0001, and a new question can use up to four searches (keywords, by meaning,
+with fewer words, by title). Everything below is free:
+
+![Budget meter](docs/budget.png)
+
+| What | How it saves |
+|---|---|
+| Budget meter | OpenAlex reports the day's remaining budget on every answer. The header of the page shows it ("OpenAlex budget: $0.62 of $1.00 left, full again in 3 h"). |
+| Saver mode | Below 20% left, or when the budget is used up, the free source for the query's field is asked first (arXiv for computer science, physics and maths; Europe PMC for biology and medicine), then Semantic Scholar, and OpenAlex only if they find too little. The extra OpenAlex searches are skipped. `PAPERSCOPE_SAVER=on` or `off` forces it. |
+| Free sources as a fallback | Outside saver mode, arXiv or Europe PMC is asked when OpenAlex fails or finds too little, before Semantic Scholar and Crossref. |
+| Cache file (optional) | `PAPERSCOPE_CACHE_FILE=data/cache/api-cache.jsonl` in `.env` keeps every answer for 7 days (`PAPERSCOPE_CACHE_DAYS`), at most 200 MB (`PAPERSCOPE_CACHE_MB`). Off by default: then nothing is written to disk. The file holds only paper details, never a key, and `data/cache/` is in `.gitignore`. |
+| Semantic Scholar key | Free from https://www.semanticscholar.org/product/api#api-key-form. Put it in `.env` as `S2_API_KEY=...`; without it that source often answers "too many requests". |
+
+Measured live on the 27 check queries (`scripts/check_queries.py`, a fresh
+memory for each query):
+
+| Mode | OpenAlex cost | Right titles in the top 10 | First result right |
+|---|---|---|---|
+| Normal | $0.072 (72 searches) | 81% | 26 of 27 |
+| Saver (`--saver`) | $0.023 | 81% | 24 of 27 |
+
+The normal row's quality is from the 4.0 run (the normal path did not change),
+and its cost counts the searches each query starts. So saver mode makes the day's budget last about three times as long, for about
+1,170 new questions a day instead of about 370. arXiv and Europe PMC could not be
+reached from the test machine (its network allows only some hosts), so in this
+run saver mode fell back to one OpenAlex keyword search per query; on a normal
+connection they answer first and OpenAlex is asked even less. They are covered
+by unit tests with recorded answers.
 
 ## Train
 
@@ -311,10 +349,11 @@ and the index is compacted, so search time stays flat as the session goes on.
 python -m unittest -v
 ```
 
-97 tests, no internet needed (a fake HTTP transport stands in for the APIs):
+111 tests, no internet needed (a fake HTTP transport stands in for the APIs):
 the data structures (heap, hash table, queue, BFS, year tree, priority queue,
-Dijkstra and radix trie included), the in-memory index (BM25 against its formula, eviction,
-compaction), the online sources (cascade, cache, cool-down, deadline), query
+Dijkstra, radix trie and the log store included), the in-memory index (BM25 against its formula, eviction,
+compaction), the online sources (cascade, cache, cache file, cool-down, deadline, budget and
+saver mode, arXiv and Europe PMC answers), query
 understanding (spelling, request words, recency, fusion), the pipeline end to end, LambdaMART, and the web API.
 
 ## Project layout
@@ -325,7 +364,7 @@ engine/
   pipeline.py          the search: understand, parse, memory, online, rank
   understand.py        query understanding: spelling, request words, recency
   memindex.py          in-memory inverted index + vector index with LRU eviction
-  sources.py           OpenAlex / Semantic Scholar / Crossref client, in-memory cache
+  sources.py           OpenAlex / arXiv / Europe PMC / Semantic Scholar / Crossref client, cache, budget
   lexicon.py           word statistics, embeddings, field classifier (learned once)
   features.py          the nine ranking features
   ranker.py            gradient-boosted trees, linear and hand-set rankers (JSON)
@@ -345,6 +384,7 @@ dsa/
   priority_queue.py    indexed min-heap with decrease-key
   graph.py             breadth-first search (citation links), Dijkstra (related papers)
   trie.py              radix trie (title suggestions)
+  logstore.py          log-structured hash table (the optional cache file)
 ml/
   train.py             builds every model and evaluates it
   dataset.py           real citation labels (online, pool, or your judgments)

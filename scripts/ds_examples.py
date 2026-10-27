@@ -12,6 +12,7 @@ import bisect
 import heapq
 import os
 import sys
+import tempfile
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, HERE)
@@ -22,6 +23,7 @@ from dsa import merge                                   # noqa: E402
 from dsa.bst import YearTree                            # noqa: E402
 from dsa.graph import bfs, dijkstra                     # noqa: E402
 from dsa.hashtable import HashTable, string_hash        # noqa: E402
+from dsa.logstore import LogStore                       # noqa: E402
 from dsa.heap import MinHeap, top_k                     # noqa: E402
 from dsa.queue import CircularQueue                     # noqa: E402
 from dsa.expression import infix_to_postfix, tokenize_query   # noqa: E402
@@ -430,7 +432,36 @@ def ex14():
           " but every insert or eviction shifts the list (O(n))")
 
 
-EXAMPLES = [ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8, ex9, ex10, ex11, ex12, ex13, ex14]
+def ex15():
+    title(15, "cache file (log-structured hash table)")
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "cache.jsonl")
+        s = LogStore(path)
+        s.put("q:graph neural networks", ["W1", "W2"])
+        s.put("q:quantum error correction", ["W7"])
+        s.put("q:graph neural networks", ["W1", "W2", "W3"])     # an update appends, it never rewrites
+        print("writes    put gnn, put qec, put gnn again")
+        print("chosen    append-only log + hash map key -> (offset, length):")
+        with open(path, "rb") as f:
+            off = 0
+            for line in f:
+                print(f"          offset {off:3d}: {line.decode().strip()}")
+                off += len(line)
+        print("          map:", {k: v[:2] for k, v in sorted(s.index.items())})
+        print(f"          get gnn = one seek to offset {s.index['q:graph neural networks'][0]}:", s.get("q:graph neural networks"))
+        s.close()
+        s = LogStore(path)
+        print(f"          after a restart: the map is rebuilt by reading the log once -> {len(s)} keys from {s.lines} lines")
+        s.compact()
+        print(f"          compact(): {s.lines} lines, {s.size} bytes (the old gnn line is gone)")
+        s.close()
+    print("alt. 1    one JSON file rewritten on every put: O(size of the whole cache) per write, and a crash"
+          " mid-write loses everything")
+    print("alt. 2    a database (SQLite, a B-tree on disk): O(log n) per lookup, not hand-written,"
+          " more than a cache of whole answers needs")
+
+
+EXAMPLES = [ex1, ex2, ex3, ex4, ex5, ex6, ex7, ex8, ex9, ex10, ex11, ex12, ex13, ex14, ex15]
 
 if __name__ == "__main__":
     chosen = [int(a) for a in sys.argv[1:]] or range(1, len(EXAMPLES) + 1)

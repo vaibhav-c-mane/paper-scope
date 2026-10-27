@@ -155,6 +155,21 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(transport.urls("api.openalex.org")[0].split("search=")[1].split("&")[0], "papers+on+protein+folding")
         self.assertEqual(len(transport.calls), 1)
 
+    def test_saver_mode_skips_the_extra_searches(self):
+        works = [openalex_work(f"Protein folding structure paper {i}", doi=f"10.1/pf{i}") for i in range(6)]
+        low = lambda method, url, body: (200, {"X-RateLimit-Remaining-USD": "0.1", "X-RateLimit-Limit-USD": "1",
+                                               "X-RateLimit-Cost-USD": "0.001"}, {"results": works})
+        client, transport, _ = client_with({"api.openalex.org/works": low}, order=("openalex",))
+        pipe = SearchPipeline(client=client, lexicon=lexicon(), ranker=HeuristicRanker(), now_year=2026)
+        pipe.search("protein folding", external="always")
+        self.assertTrue(client.saver()[0])                       # the first answer said 10% is left
+        res = pipe.search("can you find me papers on how proteins fold into their structure", external="always")
+        self.assertEqual(len(transport.urls("search.semantic=")), 0)
+        online = res["trace"]["online"]
+        self.assertEqual(online["saver"]["skipped"], ["by meaning"])
+        self.assertEqual((online["budget"]["share"], online["budget"]["saver"]), (0.1, True))
+        self.assertEqual(pipe.state()["budget"]["remaining_usd"], 0.1)
+
 
 if __name__ == "__main__":
     unittest.main()
