@@ -1,11 +1,17 @@
 # PaperScope: research paper search
 
-Type a topic in your own words. PaperScope looks it up on **OpenAlex** (then
+Type a topic in your own words, even as a sentence or with typos. PaperScope
+first works out what you are looking for, then looks it up on **OpenAlex** (then
 Semantic Scholar and Crossref if needed), keeps the papers it fetched in a small
 in-memory index, and ranks them with a **learning-to-rank model** (gradient-boosted
 trees, LambdaMART) that combines word match, meaning, research field, citations,
 recency, peer review and venue quality.
 
+* It understands everyday queries: "I want research papers on how to make
+  neural networks smaller" is searched as "how to make neural networks smaller",
+  "nueral netwrok pruning" as "neural network pruning", and "latest research on
+  X" keeps the last five years. The page says what it searched for, with a link
+  to search the words exactly as typed.
 * Everything runs online: no paper database on your disk. Papers fetched in a
   session stay in memory (up to 20,000, least recently used forgotten first), so a
   second search on the same topic is answered without asking the internet again.
@@ -72,6 +78,8 @@ python scripts/search.py "CRISPR off-target effects" --field "Biology & Medicine
 python scripts/search.py "deep AND (vision OR image) NOT survey" --year-from 2018
 python scripts/search.py "transformer attention machine translation" "attention transformers for translation"   # 2nd answered from memory
 python scripts/search.py 10.48550/arXiv.1706.03762
+python scripts/search.py "can you find me recent papers on nueral network pruning"   # understood, corrected
+python scripts/search.py "papers on protein folding" --exact                          # words as typed
 ```
 
 Query syntax: plain words; `AND` / `OR` / `NOT` in capitals with brackets;
@@ -80,23 +88,53 @@ for one paper. Filters: year range, author, research field (favour it, or
 `--strict-field` / "only this field" to keep nothing else), sort by relevance,
 newest or most cited.
 
-JSON API: `GET /api/search?q=...&year_from=&year_to=&author=&field=&strict=1&sort=&page=&online=auto|always|never&mode=learned|hybrid|bm25|semantic`,
+JSON API: `GET /api/search?q=...&exact=1&year_from=&year_to=&author=&field=&strict=1&sort=&page=&online=auto|always|never&mode=learned|hybrid|bm25|semantic`,
 `GET /api/paper?key=doi:...`, `GET /api/suggest?prefix=...`, `GET /api/state`.
 
 ## How a search runs
 
-1. **Parse** the query (`engine/pipeline.py`): words, exclusions, prefixes,
+1. **Understand** the query (`engine/understand.py`): fix typos with a spelling
+   model learned from 600,013 real papers, drop request words ("find me papers
+   on"), turn "recent" / "latest" into a year filter, and decide whether to also
+   search by meaning (a sentence or question) or by title (a short phrase).
+2. **Parse** it (`engine/pipeline.py`): words, exclusions, prefixes,
    identifiers; `AND / OR / NOT` go through the shunting-yard algorithm on a stack
    (`dsa/expression.py`).
-2. **Memory first** (`engine/memindex.py`): the 200 best papers by BM25 from the
+3. **Memory first** (`engine/memindex.py`): the 200 best papers by BM25 from the
    inverted index, plus the 200 nearest by embedding, among the papers already in memory.
-3. **Features and ranking** (`engine/features.py`, `engine/ranker.py`): nine
+4. **Features and ranking** (`engine/features.py`, `engine/ranker.py`): nine
    features per candidate, scored by the gradient-boosted trees.
-4. **Online when needed** (`engine/sources.py`): if fewer than 3 candidates are
+5. **Online when needed** (`engine/sources.py`): if fewer than 3 candidates are
    confident matches, ask OpenAlex → Semantic Scholar → Crossref (rate limits,
    timeouts, retries, a one-minute cool-down for a failing provider, answers
-   cached in memory). New papers join the index and the ranking is redone.
-5. **Order** the results with merge sort (stable) and return one page.
+   cached in memory). At the same time, a sentence also goes to OpenAlex's
+   search by meaning, and a short phrase to its title search (most cited
+   first). New papers join the index and the ranking is redone; for a sentence
+   it is combined with the by-meaning order (reciprocal rank fusion), and a
+   well-cited paper whose title is the query goes first.
+6. **Order** the results with merge sort (stable) and return one page.
+
+## Understanding everyday queries
+
+People rarely type clean keywords. A spelling model plus two extra OpenAlex
+searches (by meaning, by title) close most of the gap, without a large language
+model. Measured on 26 hand-written queries against live OpenAlex, each with a
+fresh memory (`python scripts/check_queries.py`; `--exact` runs the old way):
+
+| | before (v3.4) | now (v3.5) |
+|---|---|---|
+| right papers in the top 10 | 69% | 81% |
+| first result is a right paper | 21 of 26 | 23 of 26 |
+| the 3 queries with typos | no right paper | 10 of 10 right, each |
+| "attention is all you need": the original paper | 8th | 1st |
+| median time per new query | 1.0 s | 1.7 s |
+
+![Understood query](docs/understood.png)
+
+Every change is shown on the page ("Showing results for ...", the corrected
+words, what was left out) and can be undone with "Search instead for" (the API's
+`exact=1`, the command line's `--exact`). A new topic costs up to two more
+OpenAlex requests; repeated searches come from memory.
 
 ## Train
 
@@ -237,17 +275,18 @@ and the index is compacted, so search time stays flat as the session goes on.
 python -m unittest -v
 ```
 
-75 tests, no internet needed (a fake HTTP transport stands in for the APIs):
+88 tests, no internet needed (a fake HTTP transport stands in for the APIs):
 the data structures (heap, hash table, queue, BFS and year tree included), the in-memory index (BM25 against its formula, eviction,
-compaction), the online sources (cascade, cache, cool-down, deadline), the
-pipeline end to end, LambdaMART, and the web API.
+compaction), the online sources (cascade, cache, cool-down, deadline), query
+understanding (spelling, request words, recency, fusion), the pipeline end to end, LambdaMART, and the web API.
 
 ## Project layout
 
 ```
 app.py                 web app (Flask) and JSON API
 engine/
-  pipeline.py          the search: parse, memory, online, rank
+  pipeline.py          the search: understand, parse, memory, online, rank
+  understand.py        query understanding: spelling, request words, recency
   memindex.py          in-memory inverted index + vector index with LRU eviction
   sources.py           OpenAlex / Semantic Scholar / Crossref client, in-memory cache
   lexicon.py           word statistics, embeddings, field classifier (learned once)
@@ -277,6 +316,7 @@ scripts/
   search.py            command-line search
   fetch_openalex.py    training papers from the OpenAlex snapshot
   ds_examples.py       the worked data structure examples in docs/PROJECT.md
+  check_queries.py     26 everyday queries against live OpenAlex (search quality)
 static/                the web page
 data/models/           the trained models (the only files the app reads)
 tests/                 unit tests

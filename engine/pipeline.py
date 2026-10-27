@@ -2,6 +2,8 @@
 
     query
       │  parse: words, -exclusions, prefix*, AND/OR/NOT (stack), DOI / arXiv id
+      │  understand (engine/understand.py): fix typos, drop "find me papers on",
+      │  "recent" -> year filter, sentence or title?
       ▼
     local candidates ── BM25 top 200 (inverted index) ∪ nearest 200 vectors,
       │                 over the papers fetched earlier in this session
@@ -15,8 +17,9 @@
       ▼
     fewer than 3 confident matches?
       │  yes ─► OpenAlex → Semantic Scholar → Crossref (rate-limited, cached in
-      │         memory); the new papers are added to the in-memory index and the
-      │         ranking is computed again over everything
+      │         memory), and at the same time OpenAlex by meaning (for sentences)
+      │         and by title (for title-like queries); the new papers are added to
+      │         the in-memory index and the ranking is computed again over everything
       ▼
     results, ordered with merge sort (stable)
 
@@ -27,6 +30,7 @@ import os
 import re
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 
@@ -39,6 +43,7 @@ from engine.lexicon import Lexicon, lexicon_dir
 from engine.memindex import PaperIndex
 from engine.ranker import HeuristicRanker, load_ranker
 from engine.text import normalize, normalize_query_word, terms
+from engine.understand import QueryUnderstanding
 
 
 _OPS = {"AND", "OR", "NOT"}
@@ -75,6 +80,26 @@ def parse_query(q):
     out["words"] = [w for w in (normalize_query_word(t) for t in positive) if w]
     out["text"] = " ".join(t.rstrip("*") for t in positive)
     return out
+
+
+FUSION_K = 60
+
+
+def fuse(rows, other, k=FUSION_K):
+    """Reciprocal rank fusion of two orders: our ranked rows and another list of paper ids (OpenAlex's
+    search by meaning). Each paper scores 1/(k + its place) in every list it is in, and rows are
+    re-sorted by the sum (merge sort, stable). A paper near the top of both lists wins; one list alone
+    cannot push a paper far up, because k = 60 flattens the gap between places 1 and 10."""
+    place = {}
+    for i, d in enumerate(other):
+        place.setdefault(int(d), i + 1)
+    scored = [(1.0 / (k + i + 1) + (1.0 / (k + place[row[0]]) if row[0] in place else 0.0), row)
+              for i, row in enumerate(rows)]
+    return [row for _, row in merge_sort(scored, key=lambda t: t[0], reverse=True)]
+
+
+def _title_words(text):
+    return re.findall(r"[a-z0-9]+", (text or "").lower())
 
 
 # ---------------------------------------------------------------- shared with ml/train.py
@@ -148,6 +173,8 @@ class SearchPipeline:
     MIN_CONFIDENT = 3           # fewer confident local matches than this -> search online
     ONLINE_LIMIT = 50           # papers asked from the online source per search
     N_RELATED = 8               # related papers in the paper drawer (BFS over citations)
+    N_TITLES = 10               # most cited papers whose title contains a title-like query
+    TITLE_MIN_CITATIONS = 50    # an exact title match moves to the top only if cited this often
 
     def __init__(self, models_dir="data/models", client=None, lexicon=None, ranker=None, capacity=20000,
                  now_year=None):
@@ -158,6 +185,8 @@ class SearchPipeline:
         self.client = client
         self.now_year = now_year
         self.lock = threading.RLock()        # the in-memory index is shared by all requests
+        self.understanding = QueryUnderstanding(self.lex)
+        self.pool = ThreadPoolExecutor(max_workers=3)   # keyword, meaning and title searches run together
 
     def reload_models(self):
         self.ranker = load_ranker(os.path.join(self.models_dir, "ranker.json"))
@@ -242,12 +271,21 @@ class SearchPipeline:
 
     # ------------------------------------------------------------ public API
     def rank(self, q, year_from=None, year_to=None, author="", field=None, strict_field=False, mode="learned",
-             ranker=None, external="auto", trace=None):
-        """Ranked rows (paper key, score, relevance, features). external: auto | always | never."""
+             ranker=None, external="auto", trace=None, exact=False):
+        """Ranked rows (paper key, score, relevance, features). external: auto | always | never.
+        exact=True searches the words as typed, without query understanding."""
         if mode not in MODES:
             raise ValueError(f"mode must be one of {MODES}")
         trace = trace if trace is not None else {}
         parsed = parse_query(q)
+        understood = None
+        if not exact and parsed["words"] and not parsed["identifier"] and not parsed["boolean"]:
+            understood = self.understanding.understand(parsed["raw"], self.now_year or time.localtime().tm_year)
+            trace["understood"] = understood
+            if understood["query"] != parsed["raw"]:
+                parsed = parse_query(understood["query"])
+            if understood["recent_from"] and not year_from:
+                year_from = understood["recent_from"]
         trace["query"] = {"words": parsed["words"], "excluded": parsed["excluded"], "text": parsed["text"]}
         if parsed["identifier"]:
             return self._identifier(parsed["identifier"], external, trace)
@@ -258,13 +296,15 @@ class SearchPipeline:
         with self.lock:
             rows = self._rank_local(parsed, filters, mode, r, trace=trace)
             confident = sum(1 for row in rows if row[2] >= r.threshold)
+            if mode == "learned":
+                rows = self._exact_titles_first(rows, parsed, trace)
             keys_out = [(self.index.key_of(d), s, v, x) for d, s, v, x in rows]
         go_online = external == "always" or (external == "auto" and confident < self.MIN_CONFIDENT)
         if not go_online or self.client is None:
             trace["online"] = {"used": False, "reason": "not connected" if self.client is None and go_online
                                else f"{confident} confident matches in memory" if external == "auto" else "turned off"}
             return keys_out
-        papers, report, t0 = self._search_online(parsed, year_from, year_to)
+        papers, report, t0, parts = self._search_online(parsed, understood, year_from, year_to)
         with self.lock:
             ids = self.index.add(papers)
             trace["online"] = {"used": True, "providers": report, "fetched": len(papers),
@@ -272,16 +312,69 @@ class SearchPipeline:
                                "reason": "requested" if external == "always" else f"only {confident} confident matches in memory",
                                "ms": round((time.perf_counter() - t0) * 1000, 1)}
             rows = self._rank_local(parsed, filters, mode, r, forced=ids, trace=trace)
+            if mode == "learned":
+                start = 0
+                for name, count in parts:
+                    if name == "semantic" and count:
+                        rows = fuse(rows, ids[start:start + count])
+                        trace["fusion"] = {"with": "OpenAlex (by meaning)", "papers": count, "k": FUSION_K}
+                    start += count
+                rows = self._exact_titles_first(rows, parsed, trace)
             return [(self.index.key_of(d), s, v, x) for d, s, v, x in rows]
 
-    def _search_online(self, parsed, year_from, year_to):
+    def _exact_titles_first(self, rows, parsed, trace):
+        """A well-cited paper whose title is exactly the query goes first, then well-cited papers whose
+        title starts with a query of 4+ words ("BERT pre-training of deep bidirectional transformers").
+        The ranker cannot know that the user typed a title; without this the original "Attention Is
+        All You Need" ranks below a dozen papers that reuse its title. "Well cited" (at least
+        TITLE_MIN_CITATIONS) keeps an obscure paper that happens to be named like a topic
+        ("Machine learning for protein structure prediction", 2 citations) from jumping ahead."""
+        q = _title_words(parsed["text"])
+        if len(q) < 2:
+            return rows
+
+        def tier(row):
+            p = self.index.paper(row[0])
+            if (p.get("citations") or 0) < self.TITLE_MIN_CITATIONS:
+                return 0
+            t = _title_words(p["title"])
+            return 2 if t == q else 1 if len(q) >= 4 and t[:len(q)] == q else 0
+        tiers = [tier(row) for row in rows]
+        if not any(tiers):
+            return rows
+        trace["exact_title"] = sum(1 for t in tiers if t == 2)
+        ordered = merge_sort(list(zip(tiers, range(len(rows)))), key=lambda tr: tr[0], reverse=True)   # stable
+        return [rows[i] for _, i in ordered]
+
+    def _search_online(self, parsed, understood, year_from, year_to):
+        """Keyword search through the provider cascade; for a sentence also OpenAlex's search by
+        meaning, for a title-like query also its search by title. They run at the same time.
+        Returns (papers, report, start time, [(part name, number of papers)] in papers' order)."""
         t0 = time.perf_counter()
         text = parsed["raw"]
+        plain = " ".join(t for t in text.split() if not t.startswith("-")).replace("*", "")
+        extra = []
+        if understood is not None and hasattr(self.client, "search_openalex"):
+            if understood["semantic"]:
+                extra.append(("semantic", self.pool.submit(self.client.search_openalex, "semantic", plain,
+                                                           self.ONLINE_LIMIT, year_from=year_from, year_to=year_to)))
+            if understood["title"]:
+                extra.append(("titles", self.pool.submit(self.client.search_openalex, "titles", plain,
+                                                         self.N_TITLES, year_from=year_from, year_to=year_to)))
         try:
             papers, report = self.client.search(text, limit=self.ONLINE_LIMIT, year_from=year_from, year_to=year_to)
         except Exception as e:                          # an API problem never breaks the search
             papers, report = [], [{"provider": "online", "ok": False, "error": f"{type(e).__name__}: {e}"[:160]}]
-        return papers, report, t0
+        parts = [("keyword", len(papers))]
+        for name, job in extra:
+            try:
+                found, entry = job.result()
+            except Exception as e:
+                found, entry = [], {"provider": "OpenAlex", "ok": False, "error": f"{type(e).__name__}: {e}"[:160]}
+            papers = papers + found                     # duplicates are merged by PaperIndex.add
+            report = report + [entry]
+            parts.append((name, len(found)))
+        return papers, report, t0, parts
 
     def _identifier(self, ident, external, trace):
         kind, value = ident
@@ -307,11 +400,12 @@ class SearchPipeline:
         return [(key, 1.0, 1.0, np.zeros(len(FEATURES), np.float32))]
 
     def search(self, q, year_from=None, year_to=None, author="", field=None, strict_field=False,
-               sort_by="relevance", page=1, per_page=10, external="auto", mode="learned"):
+               sort_by="relevance", page=1, per_page=10, external="auto", mode="learned", exact=False):
         """What app.py and the CLI call: one page of results plus a trace of what happened."""
         t0 = time.perf_counter()
         trace = {}
-        rows = self.rank(q, year_from, year_to, author, field, strict_field, mode=mode, external=external, trace=trace)
+        rows = self.rank(q, year_from, year_to, author, field, strict_field, mode=mode, external=external,
+                         trace=trace, exact=exact)
         with self.lock:
             items = []
             for key, score, rel, x in rows:

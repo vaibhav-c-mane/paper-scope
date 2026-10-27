@@ -32,7 +32,8 @@ class OnlineFlowTests(unittest.TestCase):
                                            order=("openalex",))
         pipe = pipeline(client)
         res = pipe.search("protein folding structure")
-        self.assertEqual(len(transport.calls), 1)
+        self.assertEqual(len(transport.urls("works?search=")), 1)
+        self.assertEqual(len(transport.urls("title.search")), 1)          # three words: maybe a title
         self.assertTrue(res["trace"]["online"]["used"])
         self.assertEqual(res["trace"]["online"]["new"], 8)
         self.assertEqual(res["total"], 8)
@@ -46,7 +47,7 @@ class OnlineFlowTests(unittest.TestCase):
         pipe = pipeline(client)
         first = pipe.search("protein folding structure")
         second = pipe.search("protein folding structure")
-        self.assertEqual(len(transport.calls), 1)                         # no second request
+        self.assertEqual(len(transport.calls), 2)                         # keyword + title, no second round
         self.assertFalse(second["trace"]["online"]["used"])
         self.assertEqual([r["key"] for r in first["results"]], [r["key"] for r in second["results"]])
 
@@ -59,7 +60,7 @@ class OnlineFlowTests(unittest.TestCase):
         pipe = pipeline(client)
         pipe.search("protein folding structure")
         res = pipe.search("qubit entanglement circuit")
-        self.assertEqual(len(transport.calls), 2)
+        self.assertEqual(len(transport.urls("works?search=")), 2)
         self.assertIn("Qubit", res["results"][0]["title"])
         self.assertEqual(res["results"][0]["field"], "Quantum Physics")
 

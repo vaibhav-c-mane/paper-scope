@@ -11,7 +11,7 @@ gradient-boosted tree model (LambdaMART) trained on real citation data. The only
 files on disk are the trained models in `data/models/`.
 
 ```
-query ─► parse (stack) ─► memory: BM25 top 200 ∪ nearest 200 vectors ─► filters ─► 9 features ─► LambdaMART
+query ─► understand (spelling, request words, recency) ─► parse (stack) ─► memory: BM25 top 200 ∪ nearest 200 vectors ─► filters ─► 9 features ─► LambdaMART
                                          │ fewer than 3 confident matches
                                          ▼
                          OpenAlex → Semantic Scholar → Crossref (rate-limited, cached in memory)
@@ -105,6 +105,19 @@ labels, training) is identical to the online route. With an OpenAlex key
 The lexicon is learned from the same pool. It uses no relevance labels (only word
 statistics, an SVD and the papers' own field labels), so the test queries'
 citation labels never reach it.
+
+## Query understanding (version 3.5)
+
+Users type sentences, questions and typos, not keywords. Instead of a large
+language model, `engine/understand.py` uses a spelling corrector whose word
+counts are the lexicon's document frequencies (600,013 real papers), short
+hand-written lists of request and recency words, and two extra OpenAlex
+searches: by meaning (`search.semantic`) for sentences and by title (most cited
+first) for short phrases. The by-meaning order is merged with the ranker's by
+reciprocal rank fusion. It is small, fast to load, explainable (every change is
+shown on the page and can be undone with "Search instead for"), and it raised
+precision@10 on 26 everyday queries from 0.69 to 0.81. Details and the
+measurement: docs/PROJECT.md, section 12.
 
 ## What was removed, and why
 

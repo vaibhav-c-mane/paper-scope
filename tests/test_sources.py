@@ -95,6 +95,29 @@ class ClientTests(unittest.TestCase):
         client.search("another query", limit=10)
         self.assertEqual(len(transport.urls("openalex")), 1)
 
+    def test_search_by_meaning_or_title_fails_alone(self):
+        works = [openalex_work(f"Surface codes {i}") for i in range(4)]
+        broken = lambda method, url, body: (500, {}, {})
+        route = lambda method, url, body: broken(method, url, body) if "search.semantic" in url else (200, {}, {"results": works})
+        client, transport, clock = client_with({"api.openalex.org/works": route}, order=("openalex",))
+        found, entry = client.search_openalex("semantic", "how surface codes protect qubits")
+        self.assertEqual((found, entry["ok"], entry["provider"]), ([], False, "OpenAlex (by meaning)"))
+        papers, report = client.search("surface codes", limit=10)          # the keyword search is not paused
+        self.assertEqual((len(papers), report[0]["ok"]), (4, True))
+        found, entry = client.search_openalex("titles", "surface codes")
+        self.assertEqual((len(found), entry["ok"]), (4, True))
+        self.assertIn("sort=cited_by_count%3Adesc", transport.urls("title.search")[0])
+        found, entry = client.search_openalex("semantic", "how surface codes protect qubits")
+        self.assertIn("skipped", entry["error"])                           # cooling down after the failure
+
+    def test_used_up_budget_on_any_openalex_search_pauses_all_of_them(self):
+        budget = lambda method, url, body: (429, {"Retry-After": "59585"}, {"message": "Insufficient budget."})
+        client, transport, clock = client_with({"api.openalex.org": budget}, order=("openalex",))
+        client.search_openalex("semantic", "how surface codes protect qubits")
+        papers, report = client.search("surface codes", limit=10)
+        self.assertIn("skipped", report[0]["error"])
+        self.assertEqual(len(transport.urls("openalex")), 1)
+
     def test_doi_lookup_accepts_a_work_whose_main_doi_differs(self):
         # live OpenAlex: filter doi:10.48550/arxiv.1706.03762 returns the work, whose own doi is another one
         work = openalex_work("Attention Is All You Need", doi="10.65215/2q58a426")

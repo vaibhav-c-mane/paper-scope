@@ -55,7 +55,7 @@ def create_app(pipeline=None):
             res = pipeline.search(a.get("q", ""), year_from=_int(a, "year_from"), year_to=_int(a, "year_to"),
                                   author=a.get("author", ""), field=field, strict_field=a.get("strict") == "1",
                                   sort_by=sort, page=max(1, _int(a, "page", 1)),
-                                  per_page=10, external=online, mode=mode)
+                                  per_page=10, external=online, mode=mode, exact=a.get("exact") == "1")
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
         return jsonify(res)

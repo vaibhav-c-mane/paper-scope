@@ -23,6 +23,13 @@ from engine.sources import ScholarlyClient              # noqa: E402
 
 def show(res, k):
     t = res["trace"]
+    u = t.get("understood")
+    if u and u["changed"]:
+        notes = [f"{c['from']} -> {c['to']}" for c in u["corrections"]]
+        if u["recent_from"]:
+            notes.append(f"recent: from {u['recent_from']}")
+        print(f'showing results for "{u["query"]}"' + (f" ({'; '.join(notes)})" if notes else "")
+              + "; use --exact for the words as typed")
     if t.get("field"):
         print("field: " + ", ".join(f"{d['name']} {d['p']:.0%}" for d in t["field"]["detected"]))
     for err in (t.get("identifier") or {}).get("online", {}).get("errors", []):
@@ -58,6 +65,7 @@ def main():
     ap.add_argument("--year-to", type=int)
     ap.add_argument("--author", default="")
     ap.add_argument("--sort", choices=("relevance", "year", "citations"), default="relevance")
+    ap.add_argument("--exact", action="store_true", help="search the words as typed (no spelling fixes, no rewording)")
     args = ap.parse_args()
 
     pipe = SearchPipeline(models_dir=os.path.join(HERE, "data", "models"), client=ScholarlyClient())
@@ -66,7 +74,8 @@ def main():
         print(f'>>> "{q}"')
         try:
             res = pipe.search(q, args.year_from, args.year_to, args.author, args.field, args.strict_field,
-                              sort_by=args.sort, per_page=args.k, external=args.online, mode=args.mode)
+                              sort_by=args.sort, per_page=args.k, external=args.online, mode=args.mode,
+                              exact=args.exact)
         except ValueError as e:
             print("error:", e)
             continue

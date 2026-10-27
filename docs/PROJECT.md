@@ -1,8 +1,9 @@
 # PaperScope: project documentation
 
 This document describes PaperScope as the code in this folder implements it
-(version 3.4, 22 October 2026). Part 1 explains what the project does and how it
-is built, including a plain explanation of the learned ranker (section 11).
+(version 3.5, 27 October 2026). Part 1 explains what the project does and how it
+is built, including a plain explanation of the learned ranker (section 11) and
+of how everyday queries are understood (section 12, new in 3.5).
 Part 2 justifies each core data structure, compares it with alternatives on
 small worked examples, records the three changes made after measuring them, and
 describes the four hand-written structures added in version 3.4 so that every
@@ -23,7 +24,10 @@ PaperScope is a research paper search engine built for a data structures and
 algorithms course. You type a topic ("graph neural networks for molecules"), a
 boolean query (`deep AND (vision OR image) NOT survey`) or an identifier (a DOI,
 an arXiv id or an OpenAlex id), and it returns ranked papers with their year,
-venue, authors, citation count and abstract.
+venue, authors, citation count and abstract. The topic can also be typed the way
+people ask a librarian, with typos ("I want research papers on how to make
+nueral networks smaller"): PaperScope first works out what to search for
+(section 12).
 
 It does not ship a copy of the literature. Papers come from three free online
 scholarly APIs: OpenAlex, then Semantic Scholar, then Crossref. Every paper
@@ -68,6 +72,9 @@ One search follows this path (`engine/pipeline.py`, `SearchPipeline.rank` and `s
 
 ```
 query text
+  │ QueryUnderstanding.understand (not for identifiers, boolean queries or exact=1):
+  │   spelling, request words dropped, "recent" → year filter, by meaning? by title?
+  ▼
   │ parse_query: identifier? boolean operators? words, -exclusions, prefix*
   ▼
 filters: year range (year BST), author, field, exclusions, AND/OR/NOT result set
@@ -78,7 +85,11 @@ candidates from memory:  BM25 top 200 (inverted index)  ∪  nearest 200 vectors
 9 features per candidate  ─►  ranker score + relevance (0..1)
   ▼
 fewer than 3 candidates with relevance ≥ threshold (0.396 for the shipped model)?
-  │ yes ─► ScholarlyClient.search (≤ 50 papers) ─► PaperIndex.add ─► rank again
+  │ yes ─► ScholarlyClient.search (≤ 50 papers)            ┐ in parallel
+  │       + OpenAlex by meaning (a sentence, ≤ 50 papers)    │
+  │       + OpenAlex by title, most cited (a phrase, ≤ 25)   ┘
+  │       ─► PaperIndex.add ─► rank again ─► fuse with the by-meaning order
+  │       ─► a well-cited paper whose title is the query goes first
   ▼
 rows sorted by score with merge sort (re-sorted by year or citations on request)
   ▼
@@ -106,6 +117,7 @@ paper-search/
 │   └── graph.py            breadth-first search over adjacency lists
 ├── engine/                 the search engine
 │   ├── pipeline.py         SearchPipeline: the whole search flow
+│   ├── understand.py       QueryUnderstanding: spelling, request words, recency, query kind
 │   ├── memindex.py         PaperIndex: inverted index, vectors, metadata, eviction
 │   ├── lexicon.py          Lexicon: vocabulary, idf, TF-IDF columns, LSA embeddings
 │   ├── sources.py          OpenAlex, Semantic Scholar, Crossref clients and the cascade
@@ -125,9 +137,10 @@ paper-search/
 ├── scripts/
 │   ├── search.py           command-line search with the same pipeline
 │   ├── fetch_openalex.py   streams real papers from the OpenAlex snapshot for offline training
-│   └── ds_examples.py      reproduces the worked examples in Part 2 of this document
+│   ├── ds_examples.py      reproduces the worked examples in Part 2 of this document
+│   └── check_queries.py    26 everyday queries against live OpenAlex (search quality, section 12)
 ├── static/                 index.html, app.js, style.css (the web page)
-├── tests/                  75 unit tests, no network needed (fake HTTP transport)
+├── tests/                  88 unit tests, no network needed (fake HTTP transport)
 └── docs/                   DESIGN.md, PROJECT.md (this file), screenshots
 ```
 
@@ -139,6 +152,7 @@ paper-search/
 | `static/app.js` | The single page: search form, result list, side panel ("trace") that shows how the search worked, paper drawer, word suggestions as you type. |
 | `scripts/search.py` | The same pipeline from the terminal. Several queries in one call share the in-memory index, so the second can be answered from memory. |
 | `engine/pipeline.py` | `parse_query` splits the query. `PreparedQuery` computes everything that depends only on the query (word ids, embedding, field distribution). `SearchPipeline` retrieves candidates, filters, computes features, ranks, decides whether to go online, sorts and pages the results, looks papers up by identifier and lists a paper's related papers. A re-entrant lock protects the shared index; the network call happens outside the lock. |
+| `engine/understand.py` | `QueryUnderstanding` turns the typed text into what to search for: corrects typos with a noisy-channel spelling model whose word counts are the Lexicon's document frequencies, drops request words ("find me papers on"), turns "recent" / "latest" into a year filter, and says whether to also search by meaning or by title. |
 | `engine/memindex.py` | `PaperIndex` holds every fetched paper: forward index, inverted index with BM25 weights, embedding matrix, field probabilities, metadata columns, the identity-key hash table, the year tree, the citation graph and the LRU order used for eviction. |
 | `engine/lexicon.py` | `Lexicon` holds statistics learned once from 600,013 real OpenAlex works: the vocabulary (240,705 words), document frequencies (for idf), the TF-IDF columns and the LSA projection that turns text into 160-number vectors, and the field classifier. It stores no titles or abstracts. |
 | `engine/sources.py` | One client per API (`OpenAlex`, `SemanticScholar`, `Crossref`) that turns each answer into the common paper format (OpenAlex answers include each paper's reference list). `ScholarlyClient` runs the cascade, caches answers in an LRU with expiry, skips a provider that just failed (for a minute, or as long as its rate limit asks, at most 6 hours), gives every later provider 1.5 s of the deadline, and rate-limits each provider with a token bucket. API keys come from `OPENALEX_API_KEY` and `S2_API_KEY` or from a private `.env` file. |
@@ -173,7 +187,9 @@ paper-search/
 ## 6. How the components interact
 
 **A search answered from memory.** The browser calls `/api/search?q=...`;
-`app.py` calls `SearchPipeline.search`, which calls `rank`. `parse_query`
+`app.py` calls `SearchPipeline.search`, which calls `rank`. Unless the query is
+an identifier, a boolean query or marked `exact=1`, `QueryUnderstanding.understand`
+first rewrites it (section 12) and the trace records what it changed. `parse_query`
 separates words, exclusions and operators. Under the lock, `_rank_local`
 builds the filter mask (`_allowed`; a year range is read from the year tree), evaluates a boolean expression if there is
 one (`_boolean`: tokens → postfix on a stack → posting-list merges), and asks
@@ -198,7 +214,12 @@ to the dynamic arrays, their years to the year tree, their reference lists to th
 citation graph and their keys to the LRU (evicting the oldest papers if the
 index is full). The next read of the inverted index merges the new postings
 in. Then the ranking is computed again over everything in memory, with the new
-papers forced into the candidate set.
+papers forced into the candidate set. A query written as a sentence was also
+sent to OpenAlex's search by meaning, and a short phrase to its title search
+(both in parallel with the cascade, on a pool of three threads); their papers
+join memory the same way. For a sentence, the ranker's order is then combined
+with the by-meaning order by reciprocal rank fusion, and a paper with at least
+50 citations whose title is the query goes first.
 
 **An identifier.** A DOI, arXiv id or OpenAlex id is looked up in the identity
 map first; if missing, `ScholarlyClient.get_paper` asks OpenAlex, then Semantic
@@ -273,6 +294,13 @@ $0.001 of a $1 daily allowance.
   circular queue, each where it does real work in a search (section 10). They
   are written by hand in Python, which costs some speed against numpy and
   Python's built-ins written in C (section 9).
+* **Query understanding without a large language model.** Version 3.5 fixes
+  queries that found the wrong papers (sentences, typos, "attention is all you
+  need") with a spelling model learned from the same 600,013 papers, a few
+  hand-written word lists, and two more OpenAlex searches (by meaning, by
+  title). A neural model would add hundreds of megabytes and seconds per query
+  on a laptop, and OpenAlex's search by meaning already runs an embedding model
+  over 250 million works. Every change is shown and can be undone (section 12).
 * **Explainable results.** Every search returns a trace (stack steps, candidate
   counts, providers asked, features of each paper), shown in the web page.
 
@@ -288,6 +316,14 @@ $0.001 of a $1 daily allowance.
   cited paper in its top 100, so a useful online training set needs thousands of
   queries over several days of API budget.
 * **Session memory only.** Everything fetched is forgotten when the app stops.
+* **Understanding costs time and budget.** A new topic written as a sentence or
+  a phrase sends up to two more OpenAlex requests, and the median search with
+  fresh memory went from 1.0 s to 1.7 s (search by meaning takes 1.3–2 s). The
+  request and recency words are English word lists written by hand, so an
+  unusual phrasing can keep a request word or drop a topic word; "Search
+  instead for" undoes it. Spelling is corrected only for words fewer than 10 of
+  the 600,013 papers use, so a typo that is itself a real word ("form" for
+  "from") is left alone.
 * **One lock.** All requests share one index under one lock, so searches from
   several users are processed one at a time (the network part runs in parallel).
 * **Hand-written structures cost speed.** Measured back to back on 11,866 real
@@ -385,6 +421,70 @@ words also match". The owner chose to keep the trees as the default.
 
 In one sentence: the ranker adds up the answers of 153 small decision trees,
 each trained to fix the ordering mistakes the trees before it still made.
+
+## 12. Understanding everyday queries (version 3.5)
+
+**The problem.** Searched word for word, "I want research papers on how to make
+neural networks smaller" looks for "want", "research" and "make" as if they were
+the topic; "nueral netwrok pruning" matches nothing; "recent work on diffusion
+models" treats "recent" as a topic word; and the original "Attention Is All You
+Need" came 8th, under papers that reuse its title.
+
+**What runs** (`engine/understand.py`, then `engine/pipeline.py`):
+
+1. *Spelling.* A noisy-channel corrector (Norvig, "How to write a spelling
+   corrector"). The language model is how many of the 600,013 lexicon papers use
+   each word; the error model says one edit (a letter deleted, inserted,
+   replaced, or two neighbours swapped) is likelier than two. A word used by
+   fewer than 10 papers is replaced by the candidate one edit away used by at
+   least 50 times as many papers (and at least 100); a word no paper uses also
+   tries two edits if it has 5 to 9 letters. Each candidate is one hash-map
+   lookup in the lexicon, O(1): about 54n + 25 candidates for a word of n letters
+   at one edit, about 100,000 at two (0.1–0.4 s, so only when needed).
+   Acronyms (GNN, LLM) and words under 4 letters are never changed.
+2. *Request words.* A run of words at the start such as "can you find me some
+   papers on" is dropped when it has at least two words and one that shows a
+   request is being made (papers, research, me, please, ...). Pairs such as
+   "best papers on" or "latest research about" are dropped anywhere, and a
+   trailing "papers". Elsewhere the same words stay, so "attention is all you
+   need", "best response dynamics" and "operations research" are untouched.
+3. *Recency.* "recent", "latest", "newest", "current" or "new papers" among the
+   dropped words becomes a year filter: the last five years (from 2022 in 2026).
+4. *Query kind.* A question, a request, or 5 or more topic words (or a
+   corrected one) also goes to OpenAlex's search by meaning (`search.semantic`,
+   an embedding search); 3 or more keywords also go to its title search, most
+   cited first.
+5. *Fusion.* For a by-meaning query, the ranker's order and OpenAlex's order are
+   combined by reciprocal rank fusion: score = 1/(60 + rank in one list) +
+   1/(60 + rank in the other), so a paper high in both lists wins.
+6. *Exact title.* A paper with at least 50 citations whose title equals the
+   query (or starts with it, for 4 or more words) is moved to the top with a
+   stable merge sort; the citation bar keeps an obscure paper that reuses a
+   famous title out of first place.
+
+The page shows "Showing results for ...", the corrected words and what was left
+out, with a "Search instead for" link that repeats the search with `exact=1`
+(command line: `--exact`).
+
+**Measured result.** 26 hand-written queries (sentences, questions, typos, known
+titles and plain keywords), each paired with a pattern a right title must
+match, run against live OpenAlex with fresh memory on 27 October 2026
+(`python scripts/check_queries.py`; `--exact` runs them without understanding):
+
+| | version 3.4 | version 3.5 |
+|---|---|---|
+| right papers in the top 10 (precision@10) | 0.69 | 0.81 |
+| first result is a right paper | 21 of 26 | 23 of 26 |
+| the 3 queries with typos | no right paper | 10 of 10 right, each |
+| "attention is all you need": the original paper | 8th | 1st |
+| median time with fresh memory | 1.0 s | 1.7 s |
+
+Three queries got slightly worse: "how does climate change affect crop yields"
+(1.0 → 0.8 of the top 10, first right paper 1st → 2nd), "can machine learning
+predict heart disease" (1.0 → 0.9) and "self-driving cars seeing pedestrians at
+night" (first right paper 1st → 2nd, though its top 10 improved from 0.6 to
+0.8). Live answers change from day to day, so differences of one paper are noise. Known-title queries such as "deep residual learning for image
+recognition" still score 0.1 because only one paper has that title; it is first.
 
 ---
 

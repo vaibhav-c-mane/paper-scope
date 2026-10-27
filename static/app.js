@@ -6,7 +6,7 @@ const FEATURE_NAMES = {
   term_coverage: "query words anywhere", domain_match: "same research field", citations: "citations per year",
   recency: "recency", peer_reviewed: "peer reviewed", venue_quality: "venue quality",
 };
-let current = { page: 1 };
+let current = { page: 1, exact: false };
 
 async function getJSON(url) {
   const r = await fetch(url);
@@ -34,12 +34,14 @@ function params(page) {
     if ($(id).value) p.set(id, $(id).value);
   }
   if ($("strict").checked) p.set("strict", "1");
+  if (current.exact) p.set("exact", "1");
   return p;
 }
 
-async function search(page = 1) {
+async function search(page = 1, exact = false) {
   const q = $("q").value.trim();
   if (!q) return;
+  if (page === 1) current.exact = exact;          // "search instead for ..." asks for the words as typed
   hideSuggest();
   current.page = page;
   $("results").innerHTML = `<div class="empty">Searching… (the first search on a topic asks the internet)</div>`;
@@ -79,11 +81,12 @@ function renderResults(res) {
   const words = res.trace.query?.words || [];
   const box = $("results");
   if (!res.results.length) {
-    box.innerHTML = `<div class="empty">No papers found. Try other words, or remove filters.</div>`;
+    box.innerHTML = understoodHTML(res.trace.understood) + `<div class="empty">No papers found. Try other words, or remove filters.</div>`;
     return;
   }
   const first = (res.page - 1) * res.per_page;
-  box.innerHTML = `<div class="summary">${res.total} papers · ${res.trace.total_ms} ms</div>` +
+  box.innerHTML = understoodHTML(res.trace.understood) +
+    `<div class="summary">${res.total} papers · ${res.trace.total_ms} ms</div>` +
     res.results.map((p, i) => `
       <article class="paper" data-key="${esc(p.key)}">
         <h3>${first + i + 1}. ${highlight(p.title, words)}</h3>
@@ -95,10 +98,31 @@ function renderResults(res) {
     `${first + res.per_page < res.total ? `<button data-page="${res.page + 1}">Next ›</button>` : ""}</div>`;
 }
 
+// What query understanding changed (engine/understand.py), with a way back to the words as typed.
+function understoodHTML(u) {
+  if (!u || !u.changed) return "";
+  const notes = [];
+  if (u.corrections.length) notes.push("spelling corrected: " + u.corrections.map((c) => `${esc(c.from)} → <b>${esc(c.to)}</b>`).join(", "));
+  if (u.recent_from) notes.push(`only papers from ${u.recent_from} on, because you asked for recent work`);
+  return `<div class="understood">Showing results for <b>${esc(u.query)}</b>` +
+    (notes.length ? `<div class="small">${notes.join(" · ")}</div>` : "") +
+    `<div class="small">Search instead for <a href="#" id="exact">${esc(u.original)}</a></div></div>`;
+}
+
 function renderTrace(t) {
   const el = $("trace");
   el.classList.remove("hidden");
   const rows = [];
+  const u = t.understood;
+  if (u) {
+    const how = [u.kind === "question" ? "a question" : u.kind === "request" ? "a request" : "keywords"];
+    if (u.semantic) how.push("also search by meaning");
+    if (u.title) how.push("also search titles");
+    rows.push(`<h4>Understood as</h4><div>${how.map(esc).join(" · ")}` +
+      (u.removed.length ? `<br>left out: <code>${esc(u.removed.join(" "))}</code>` : "") +
+      (u.corrections.length ? `<br>spelling: ${u.corrections.map((c) => `<code>${esc(c.from)}</code> → <code>${esc(c.to)}</code>`).join(", ")}` : "") +
+      (u.recent_from ? `<br>recent: from ${u.recent_from}` : "") + "</div>");
+  }
   rows.push(`<h4>Query</h4><div>words: <code>${esc((t.query?.words || []).join(" ") || "–")}</code>` +
     (t.query?.excluded?.length ? `<br>excluded: <code>${esc(t.query.excluded.join(" "))}</code>` : "") + "</div>");
   if (t.identifier) {
@@ -137,7 +161,9 @@ function renderTrace(t) {
     rows.push(`<h4>Research field</h4><div>${t.field.chosen ? `chosen: <b>${esc(t.field.chosen)}</b><br>` : ""}` +
       t.field.detected.map((d) => `${esc(d.name)} ${(d.p * 100).toFixed(0)}%`).join("<br>") + "</div>");
   }
-  if (t.rerank) rows.push(`<h4>Ranking</h4><div>${esc(t.rerank.ranker)} · confident above ${t.rerank.threshold}</div>`);
+  if (t.rerank) rows.push(`<h4>Ranking</h4><div>${esc(t.rerank.ranker)} · confident above ${t.rerank.threshold}` +
+    (t.fusion ? `<br>combined with the order of ${esc(t.fusion.with)} (reciprocal rank fusion)` : "") +
+    (t.exact_title ? `<br>exact title match moved to the top` : "") + "</div>");
   el.innerHTML = rows.join("");
 }
 
@@ -228,8 +254,9 @@ $("examples").addEventListener("click", (e) => {
   search(1);
 });
 $("results").addEventListener("click", (e) => {
+  if (e.target.id === "exact") { e.preventDefault(); search(1, true); return; }
   const pg = e.target.closest("button[data-page]");
-  if (pg) { search(Number(pg.dataset.page)); window.scrollTo(0, 0); return; }
+  if (pg) { search(Number(pg.dataset.page), current.exact); window.scrollTo(0, 0); return; }
   const card = e.target.closest(".paper");
   if (card) openPaper(card.dataset.key);
 });

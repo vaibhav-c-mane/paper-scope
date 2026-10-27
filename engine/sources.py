@@ -184,6 +184,28 @@ class Http:
         raise last_error if isinstance(last_error, Exception) else RuntimeError("request failed")
 
 
+class _Locked:
+    """An LRU cache shared by the searches that run at the same time (keyword, by meaning,
+    by title): get and put move nodes of its linked list, so one runs at a time."""
+
+    def __init__(self, cache):
+        self._cache, self._lock = cache, threading.Lock()
+
+    def get(self, key, default=None):
+        with self._lock:
+            return self._cache.get(key, default)
+
+    def put(self, key, value, ttl=None):
+        with self._lock:
+            return self._cache.put(key, value, ttl)
+
+    def __getattr__(self, name):
+        return getattr(self._cache, name)
+
+    def __len__(self):
+        return len(self._cache)
+
+
 # ------------------------------------------------------------------ helpers
 _TAGS = re.compile(r"<[^>]+>")
 _OPENALEX_ID = re.compile(r"(?:https?://openalex\.org/)?(W\d+)$", re.I)
@@ -251,6 +273,25 @@ class OpenAlex:
         if year_from or year_to:
             params["filter"] = f"publication_year:{year_from or 1900}-{year_to or 2100}"
         return self._get(params, refs=True, deadline=deadline)[0]     # reference lists: the citation graph
+
+    def semantic(self, query, limit, deadline=None, year_from=None, year_to=None):
+        """Meaning-based search: OpenAlex embeds the query and returns the works whose
+        embeddings are closest, so "make neural networks smaller for phones" finds model
+        compression papers that share none of those words. At most 50 results."""
+        params = {"search.semantic": " ".join(query.split()), "per_page": min(50, limit)}
+        if year_from or year_to:
+            params["filter"] = f"publication_year:{year_from or 1900}-{year_to or 2100}"
+        return self._get(params, refs=True, deadline=deadline)[0]
+
+    def titles(self, query, limit, deadline=None, year_from=None, year_to=None):
+        """Works whose title contains the query words, most cited first: finds the original
+        paper behind a title such as "attention is all you need"."""
+        words = re.sub(r"[^\w\s-]", " ", query).split()       # , : | would start a new filter
+        flt = "title.search:" + " ".join(words)
+        if year_from or year_to:
+            flt += f",publication_year:{year_from or 1900}-{year_to or 2100}"
+        return self._get({"filter": flt, "sort": "cited_by_count:desc", "per_page": min(25, limit)},
+                         refs=True, deadline=deadline)[0]
 
     def lookup(self, dois, deadline=None):
         """DOIs -> {doi: paper}; one request per 50 DOIs."""
@@ -423,7 +464,7 @@ class ScholarlyClient:
     def __init__(self, order=("openalex", "semanticscholar", "crossref"), http=None, cache_size=2000,
                  search_ttl=DAY, paper_ttl=7 * DAY, negative_ttl=HOUR):
         self.http = http or Http()
-        self.cache = LRUCache(cache_size, ttl=search_ttl, clock=self.http.clock)
+        self.cache = _Locked(LRUCache(cache_size, ttl=search_ttl, clock=self.http.clock))
         self.providers = {name: PROVIDERS[name](self.http) for name in order}
         self.order = list(order)
         self.search_ttl, self.paper_ttl, self.negative_ttl = search_ttl, paper_ttl, negative_ttl
@@ -481,6 +522,38 @@ class ScholarlyClient:
             if len(papers) >= max(3, limit // 2) or self.http.clock() >= deadline:
                 break
         return papers[:limit], report
+
+    def search_openalex(self, kind, query, limit=25, deadline_s=6.0, year_from=None, year_to=None):
+        """An extra OpenAlex search: kind "semantic" (by meaning) or "titles" (by title, most
+        cited first). Cached like search(). A failure here is reported but does not pause the
+        keyword search, which counts as a separate provider ("openalex-semantic", ...)."""
+        name = "openalex-" + kind
+        label = {"semantic": "OpenAlex (by meaning)", "titles": "OpenAlex (by title)"}[kind]
+        entry = {"provider": label, "cached": False}
+        prov = self.providers.get("openalex")
+        if prov is None:
+            return [], dict(entry, ok=False, results=0, error="OpenAlex not configured", ms=0)
+        key = ("search", name, limit, " ".join(query.lower().split()), year_from, year_to)
+        t0 = time.perf_counter()
+        found = self.cache.get(key, _MISS)
+        if found is not _MISS:
+            entry.update(cached=True, ok=True, results=len(found))
+        elif not self._up(name) or not self._up("openalex"):
+            return [], dict(entry, ok=False, results=0, ms=0,
+                            error=f"skipped: failed recently, retrying in {_human(max(self._wait(name), self._wait('openalex')))}")
+        else:
+            try:
+                found = getattr(prov, kind)(query, limit, self.http.clock() + deadline_s, year_from, year_to)
+                self.cache.put(key, found, self.search_ttl if found else self.negative_ttl)
+                entry.update(ok=True, results=len(found))
+            except Exception as e:
+                found = []
+                self._failed(name, e)
+                if isinstance(e, RateLimited):          # the daily budget is shared with the keyword search
+                    self._failed("openalex", e)
+                entry.update(ok=False, results=0, error=f"{type(e).__name__}: {e}"[:160])
+        entry["ms"] = round((time.perf_counter() - t0) * 1000, 1)
+        return [dict(p) for p in found], entry
 
     # ---- one paper by DOI, arXiv id or OpenAlex id
     def get_paper(self, identifier, deadline_s=6.0):

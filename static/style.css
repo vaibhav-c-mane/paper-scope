@@ -47,6 +47,8 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .layout.notrace { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
 
+.understood { margin: 4px 0 10px; padding: 10px 12px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 4px; }
+.understood .small { margin-top: 3px; }
 .summary { margin: 4px 0 12px; color: var(--muted); font-size: 14px; }
 .paper { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 13px 15px; margin-bottom: 10px; cursor: pointer; }
 .paper:hover { border-color: var(--border-strong); box-shadow: var(--shadow); }
