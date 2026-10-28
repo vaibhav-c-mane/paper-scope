@@ -10,7 +10,7 @@ const state = { page: 1, exact: false, last: null, results: [], extra: {}, field
 async function getJSON(url) {
   const r = await fetch(url);
   const data = await r.json().catch(() => ({ error: `The server answered with HTTP ${r.status}.` }));
-  if (!r.ok) throw new Error(data.error || `The server answered with HTTP ${r.status}.`);
+  if (!r.ok) throw Object.assign(new Error(data.error || `The server answered with HTTP ${r.status}.`), { status: r.status });
   return data;
 }
 
@@ -197,8 +197,11 @@ async function search(page = 1, exact = state.exact, push = true) {
     $("notice").innerHTML = "";
     $("summary").innerHTML = "";
     $("pager").innerHTML = "";
+    // a refused search (429) already says how long to wait
+    const next = e.status === 429 ? "" : e.status === 400 ? "Change the search, then try again."
+      : "Check that PaperScope is still running, then search again.";
     $("results").innerHTML = `<li class="state error"><h2>The search could not finish</h2><p>${esc(e.message)}</p>
-      <p>Check that PaperScope is still running, then search again.</p></li>`;
+      ${next ? `<p>${next}</p>` : ""}</li>`;
   } finally {
     if (seq === searchSeq) {
       document.body.classList.remove("is-loading");
@@ -207,14 +210,14 @@ async function search(page = 1, exact = state.exact, push = true) {
   }
 }
 
+// The text is split on the search's words first and every piece escaped after, so a word such
+// as "amp" can never be marked inside an escaped character like &amp;.
 function highlight(text, words) {
-  let out = esc(text);
-  for (const w of words || []) {
-    const stem = w.replace(/\*$/, "");
-    if (stem.length < 3) continue;
-    out = out.replace(new RegExp(`\\b(${stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\w*)`, "gi"), "<mark>$1</mark>");
-  }
-  return out;
+  const stems = (words || []).map((w) => w.replace(/\*$/, "")).filter((s) => s.length >= 3)
+    .map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (!stems.length) return esc(text);
+  const re = new RegExp(`\\b((?:${stems.join("|")})\\w*)`, "gi");
+  return String(text ?? "").split(re).map((part, i) => (i % 2 ? `<mark>${esc(part)}</mark>` : esc(part))).join("");
 }
 
 function shortAuthors(authors, n = 3) {
@@ -224,7 +227,9 @@ function shortAuthors(authors, n = 3) {
   return `${list.slice(0, n).join(", ")} and ${list.length - n} more`;
 }
 
-function paperLink(p) { return p.doi ? `https://doi.org/${p.doi}` : p.url || ""; }
+// Only web addresses become links: they come from outside APIs (engine/papers.py checks them too).
+function webLink(u) { return /^https?:\/\//i.test(String(u || "")) ? String(u) : ""; }
+function paperLink(p) { return webLink(p.doi ? `https://doi.org/${p.doi}` : p.url); }
 
 function matchHTML(p) {
   // how much of the search the paper covers, in words and meaning (engine/pipeline.py, match_scores)
@@ -240,9 +245,9 @@ function factsHTML(p, withMatch = true, withLink = true) {
   if (p.published === true) f.push(`<span class="fact-good">Peer reviewed</span>`);
   else if (p.published === false) f.push(`<span class="fact-warn">Preprint</span>`);
   if (p.venue_quality >= 0.75) f.push(`<span>${p.venue_quality >= 1 ? "Top" : "Strong"} venue</span>`);
-  if (p.citations != null) f.push(`<span>${p.citations.toLocaleString()} ${p.citations === 1 ? "citation" : "citations"}</span>`);
+  if (p.citations != null) f.push(`<span>${esc(Number(p.citations).toLocaleString())} ${p.citations === 1 ? "citation" : "citations"}</span>`);
   if (p.field) f.push(`<span>${esc(p.field)}</span>`);
-  if (p.oa_url && withLink) f.push(`<a href="${esc(p.oa_url)}" target="_blank" rel="noopener">Free full text</a>`);
+  if (webLink(p.oa_url) && withLink) f.push(`<a href="${esc(webLink(p.oa_url))}" target="_blank" rel="noopener">Free full text</a>`);
   return `<div class="facts">${f.join("")}</div>`;
 }
 
@@ -400,7 +405,7 @@ async function openPaper(key) {
       <p class="paper-where">${[p.venue ? `<i>${esc(p.venue)}</i>` : "", p.year ? esc(p.year) : ""].filter(Boolean).join(", ")}</p>
       <div class="actions">
         ${link ? `<a class="btn btn-primary" href="${esc(link)}" target="_blank" rel="noopener">Open the paper</a>` : ""}
-        ${p.oa_url ? `<a class="btn" href="${esc(p.oa_url)}" target="_blank" rel="noopener">Free full text</a>` : ""}
+        ${webLink(p.oa_url) ? `<a class="btn" href="${esc(webLink(p.oa_url))}" target="_blank" rel="noopener">Free full text</a>` : ""}
         <button type="button" class="btn" id="copy-cite">Copy citation</button>
       </div>
       <div class="paper-facts">${factsHTML(view, view.match != null, false)}</div>

@@ -153,7 +153,7 @@ paper-search/
 │   ├── ds_examples.py      reproduces the worked examples in Part 2 of this document
 │   └── check_queries.py    26 everyday queries against live OpenAlex (search quality, section 12)
 ├── static/                 index.html, app.js, theme.js, style.css (the web page)
-├── tests/                  121 unit tests, no network needed (fake HTTP transport)
+├── tests/                  136 unit tests, no network needed (fake HTTP transport)
 └── docs/                   DESIGN.md, PROJECT.md (this file), screenshots
 ```
 
@@ -161,7 +161,7 @@ paper-search/
 
 | Module | Responsibility |
 |---|---|
-| `app.py` | Creates one `SearchPipeline` with a `ScholarlyClient`, validates request parameters and returns JSON. Visitors get the papers, the words to mark and what the search understood; the trace, ranking numbers, budget and test settings only reach the signed-in admin. Memory limit from `PAPERSCOPE_CAPACITY` (default 20,000 papers). |
+| `app.py` | Creates one `SearchPipeline` with a `ScholarlyClient`, validates request parameters and returns JSON. Visitors get the papers, the words to mark and what the search understood; the trace, ranking numbers, budget and test settings only reach the signed-in admin. `VisitorLimit` (a token bucket per visitor address, kept in the LRU cache) allows 30 searches or paper look-ups a minute; searches over 500 characters are refused; `robots.txt` keeps crawlers off the API. Memory limit from `PAPERSCOPE_CAPACITY` (default 20,000 papers). |
 | `wsgi.py` | The same app for a public website, on waitress (one process, eight threads). `app.for_deployment` reads each visitor's address through the host's proxies (Werkzeug's `ProxyFix`, `PAPERSCOPE_PROXIES`), makes the sign-in cookie HTTPS-only (`__Host-` prefix) and adds Strict-Transport-Security. Every response, local or public, carries a content security policy, `nosniff` and a same-origin referrer policy. |
 | `admin/` | The hidden admin login: a login page at a secret address from `.env`, a scrypt password hash, a signed HttpOnly SameSite=Strict cookie, and a limit of five wrong passwords per address (kept in the LRU cache with expiry). Serves `admin.js` and `admin.css`, which add "How this search worked", the test settings and "Why it ranked here", only to the signed-in admin. Set up with `scripts/set_admin.py`. |
 | `static/app.js` | The single page: start page, results with filters kept in the address bar, first / previous / next / last page, paper details sheet (related papers, citation links, copy citation), recent searches for the open tab (sessionStorage, no account), light and dark themes (`static/theme.js`: dark at night, 7 pm to 7 am, or when the device asks), and suggestions as you type. |

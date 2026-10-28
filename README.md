@@ -196,14 +196,33 @@ On a host (Render, Railway, Heroku, PythonAnywhere, your own server...):
 | `PAPERSCOPE_PROXIES` | 1 | How many proxies pass each request on: 1 for the host's own, 2 if Cloudflare is also in front, 0 if visitors reach the app directly. The app reads each visitor's real address with it, and the admin login's wrong-password limit counts by that address. Too low and every visitor looks like the proxy (one person's wrong passwords lock you out too); too high and a visitor can fake an address. |
 | `PAPERSCOPE_HTTPS` | on | `off` only to try `wsgi.py` over plain http on your own computer. |
 | `PAPERSCOPE_THREADS` | 8 | Requests served at the same time. |
+| `PAPERSCOPE_SEARCHES_PER_MINUTE` | 30 | Searches and opened papers per visitor address (0 = no limit). Raise it if many people share one address, as in a school or office network. |
 
 Run one copy of the app per site (one process, never several gunicorn
 workers): the papers in memory, the OpenAlex budget and the wrong-password
 counts live in that process.
 
-Every response also carries a content security policy (only the site's own
-scripts run, nothing can show the page in a frame), `nosniff`, and a referrer
-policy that keeps what was searched from other sites.
+What protects the live site:
+
+* **Searches per visitor.** A visitor address can make 30 searches or paper
+  look-ups a minute (`PAPERSCOPE_SEARCHES_PER_MINUTE`), then is asked to wait a
+  few seconds, so one script cannot spend the OpenAlex budget or get the server
+  blocked by the free sources. The admin is never limited. The log notes each
+  address that hits the limit.
+* **Sizes.** A search has at most 500 characters and an author name 100; a
+  request body is refused above 64 KB, and an answer from an API above 32 MB.
+* **What the page shows.** A link from an API that is not a web address
+  (`javascript:`, `data:`) is dropped and citation counts are made numbers,
+  before anything reaches the page.
+* **Calls to the APIs.** Identifiers are fully encoded in the API's address, and
+  a redirect is followed only to the same host over HTTPS.
+* **Headers.** A content security policy (only the site's own scripts run,
+  nothing can show the page in a frame), `X-Frame-Options`, `nosniff`, a referrer
+  policy that keeps what was searched from other sites, and `no-store` on every
+  API answer.
+* **Search engines.** `robots.txt` keeps crawlers off the API (their searches
+  would cost budget) and pages of results carry `noindex`; the start page is
+  indexed. The admin login's address is never named.
 
 **Changing the admin password, or moving the login page, on the live site.**
 The site does not need to go down:
@@ -460,12 +479,13 @@ and the index is compacted, so search time stays flat as the session goes on.
 python -m unittest -v
 ```
 
-111 tests, no internet needed (a fake HTTP transport stands in for the APIs):
+136 tests, no internet needed (a fake HTTP transport stands in for the APIs):
 the data structures (heap, hash table, queue, BFS, year tree, priority queue,
 Dijkstra, radix trie and the log store included), the in-memory index (BM25 against its formula, eviction,
 compaction), the online sources (cascade, cache, cache file, cool-down, deadline, budget and
 saver mode, arXiv and Europe PMC answers), query
-understanding (spelling, request words, recency, fusion), the pipeline end to end, LambdaMART, and the web API.
+understanding (spelling, request words, recency, fusion), the pipeline end to end, LambdaMART, and the web API
+(the admin login and its lock, what visitors may see, searches per visitor, size limits, headers, crawlers).
 
 ## Project layout
 

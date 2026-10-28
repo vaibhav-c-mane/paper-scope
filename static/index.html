@@ -35,7 +35,7 @@
   </a>
   <form class="search" id="search" role="search" autocomplete="off">
     <svg class="search-icon" aria-hidden="true"><use href="#i-search"/></svg>
-    <input id="q" name="q" type="search" placeholder="Ask about a topic, or paste a DOI" aria-label="Search papers"
+    <input id="q" name="q" type="search" placeholder="Ask about a topic, or paste a DOI" aria-label="Search papers" maxlength="500"
            aria-autocomplete="list" aria-controls="suggest" spellcheck="false">
     <button type="submit" class="search-go">Search</button>
     <ul class="suggest hidden" id="suggest" role="listbox"></ul>
@@ -80,7 +80,7 @@
         <svg aria-hidden="true"><use href="#i-sliders"/></svg>More filters</button>
       <button type="button" class="link small hidden" id="reset-filters">Clear filters</button>
       <div class="more hidden" id="more">
-        <label class="field-inline">Author <input id="author" placeholder="e.g. Hinton"></label>
+        <label class="field-inline">Author <input id="author" placeholder="e.g. Hinton" maxlength="100"></label>
         <label class="check"><input type="checkbox" id="strict"> Only papers from the chosen field</label>
       </div>
     </div>

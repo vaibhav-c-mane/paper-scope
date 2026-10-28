@@ -57,6 +57,8 @@ def update_env(path, values):
         out += [f"{k}={v}" for k, v in left.items()]
     with open(path, "w", encoding="utf-8", newline="") as f:
         f.write(newline.join(out) + newline)
+    if os.name == "posix":
+        os.chmod(path, 0o600)           # keys and the password hash: readable by you only
 
 
 def admin_values(user, password, old, new_address=False):

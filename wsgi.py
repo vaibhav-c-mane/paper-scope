@@ -41,6 +41,9 @@ if __name__ == "__main__":
     from waitress import serve
 
     logging.getLogger("paperscope").info(describe(application))
-    # the proxy headers go through untouched: the app decides which entry to trust (app.for_deployment)
+    # The proxy headers go through untouched: the app decides which entry to trust (app.for_deployment).
+    # Requests are small (the largest is the admin sign-in form), so a bigger body is refused at once
+    # instead of being stored (waitress would accept up to 1 GB).
     serve(application, host=_setting("PAPERSCOPE_HOST", "0.0.0.0"), port=int(_setting("PORT", "8000")),
-          threads=int(_setting("PAPERSCOPE_THREADS", "8")), clear_untrusted_proxy_headers=False)
+          threads=int(_setting("PAPERSCOPE_THREADS", "8")), clear_untrusted_proxy_headers=False,
+          max_request_body_size=64 * 1024)

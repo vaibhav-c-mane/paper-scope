@@ -81,6 +81,8 @@ class AdminLogin:
         self.base = f"/{settings['path']}/"
         # stored in the signed cookie; a new password changes it, which signs every browser out
         self.mark = hashlib.sha256(settings["password_hash"].encode()).hexdigest()[:24]
+        # usernames are compared as hashes of one length, so the time taken cannot tell its length
+        self.user_digest = hashlib.sha256(settings["user"].encode()).digest()
         self.guard = LoginGuard()
         app.config.update(SECRET_KEY=settings.get("secret_key") or secrets.token_hex(32),
                           SESSION_COOKIE_HTTPONLY=True, SESSION_COOKIE_SAMESITE="Strict",
@@ -126,7 +128,8 @@ class AdminLogin:
             good = check_password_hash(self.settings["password_hash"], request.form.get("password", ""))
         except ValueError:                                  # not a hash: run scripts/set_admin.py
             good = False
-        if good and hmac.compare_digest(request.form.get("username", "").encode(), self.settings["user"].encode()):
+        typed = hashlib.sha256(request.form.get("username", "").encode()).digest()
+        if good and hmac.compare_digest(typed, self.user_digest):
             self.guard.right(addr)
             session.clear()
             session.permanent = True

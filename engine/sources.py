@@ -91,13 +91,32 @@ class RateLimiter:
 
 
 TRANSIENT = (429, 500, 502, 503, 504)
+MAX_ANSWER = 32 * 2 ** 20               # bytes; the largest real answer (500 papers) is a few MB
+
+
+class SameHostRedirects(urllib.request.HTTPRedirectHandler):
+    """Follows a redirect only to HTTPS on the same host, so an API's answer can never send a
+    request somewhere else (to a cloud server's internal metadata address, say). A refused
+    redirect comes back as its 3xx status, which the caller treats as a failed request."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        old, new = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
+        if new.scheme != "https" or new.hostname != old.hostname:
+            return None
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+_OPENER = urllib.request.build_opener(SameHostRedirects)
 
 
 def urllib_transport(method, url, body, headers, timeout):
     req = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return r.status, dict(r.headers), r.read()
+        with _OPENER.open(req, timeout=timeout) as r:
+            raw = r.read(MAX_ANSWER + 1)
+            if len(raw) > MAX_ANSWER:
+                raise ValueError(f"answer from {urllib.parse.urlsplit(url).netloc} is larger than {MAX_ANSWER // 2 ** 20} MB")
+            return r.status, dict(r.headers), raw
     except urllib.error.HTTPError as e:
         try:
             raw = e.read()
@@ -562,7 +581,8 @@ class Crossref:
     def lookup(self, doi, deadline=None):
         """One DOI -> paper (or None). Crossref knows journal and conference DOIs, not arXiv ones."""
         params = {"mailto": os.environ["OPENALEX_EMAIL"]} if os.environ.get("OPENALEX_EMAIL") else {}
-        url = f"{self.BASE}/works/{urllib.parse.quote(doi, safe='/')}" + ("?" + urllib.parse.urlencode(params) if params else "")
+        # the whole DOI encoded, "/" too: a DOI like 10.1/../members cannot reach another Crossref page
+        url = f"{self.BASE}/works/{urllib.parse.quote(doi, safe='')}" + ("?" + urllib.parse.urlencode(params) if params else "")
         data = self.http.json("GET", url, limiter=self.limiter, deadline=deadline)
         return self.normalize((data or {}).get("message") or {})
 

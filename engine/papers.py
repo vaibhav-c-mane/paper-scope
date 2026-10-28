@@ -16,13 +16,29 @@ PAPER_DEFAULTS = {
     "source": "",
 }
 _ARXIV_URL = re.compile(r"arxiv\.org/(?:abs|pdf)/([^\s?#]+?)(?:v\d+)?(?:\.pdf)?$", re.I)
+_WEB_LINK = re.compile(r"^https?://", re.I)
+
+
+def _count(v):
+    """A whole number, or None when the source sent something that is not one."""
+    try:
+        return max(0, int(float(v)))
+    except (TypeError, ValueError, OverflowError):
+        return None
 
 
 def complete(paper):
-    """Fill in every missing key with its default (used for external papers too)."""
+    """Fill in every missing key with its default (used for external papers too). The answers come
+    from outside APIs and end up on the page, so the year and citation count are made numbers and
+    a link that is not a web address (javascript:, data:) is dropped."""
     out = dict(PAPER_DEFAULTS)
     out.update({k: v for k, v in paper.items() if v is not None or k not in out})
-    out["year"] = int(out["year"] or 0)
+    out["year"] = _count(out["year"]) or 0
+    if out["citations"] is not None:
+        out["citations"] = _count(out["citations"])
+    for k in ("url", "oa_url"):
+        if out[k] and not _WEB_LINK.match(str(out[k])):
+            out[k] = None
     return out
 
 

@@ -7,7 +7,7 @@ import unittest
 from werkzeug.security import generate_password_hash
 
 from admin import MAX_TRIES, LoginGuard
-from app import create_app, for_deployment
+from app import VisitorLimit, create_app, for_deployment
 from engine.pipeline import SearchPipeline
 from engine.ranker import HeuristicRanker
 from scripts.set_admin import admin_values, read_env, update_env
@@ -16,6 +16,13 @@ from tests.fixtures import FakeClock, client_with, lexicon, ok, openalex_work
 ADMIN = {"path": "test-door-4821", "user": "owner", "secret_key": "test-key",
          "password_hash": generate_password_hash("correct horse battery", method="pbkdf2:sha256:1000")}
 logging.getLogger("paperscope.admin").addHandler(logging.NullHandler())     # sign-in lines stay out of test output
+
+
+def protein_pipeline():
+    """Six protein folding papers behind a fake OpenAlex."""
+    works = [openalex_work(f"Protein folding structure paper {i}", doi=f"10.1/pf{i}") for i in range(6)]
+    client, _, _ = client_with({"api.openalex.org/works": ok({"results": works})}, order=("openalex",))
+    return SearchPipeline(client=client, lexicon=lexicon(), ranker=HeuristicRanker(), capacity=100)
 
 
 def page(web, url="/"):
@@ -68,8 +75,20 @@ class AppTests(unittest.TestCase):
             self.assertIn("script-src 'self'", r.headers["Content-Security-Policy"])
             self.assertIn("frame-ancestors 'none'", r.headers["Content-Security-Policy"])
             self.assertEqual(r.headers["X-Content-Type-Options"], "nosniff")
+            self.assertEqual(r.headers["X-Frame-Options"], "DENY")
             self.assertNotIn("Strict-Transport-Security", r.headers)               # not over http on your computer
-        self.assertIn("Content-Security-Policy", self.web.get("/api/state").headers)
+        api = self.web.get("/api/state")
+        self.assertIn("Content-Security-Policy", api.headers)
+        self.assertEqual(api.headers["Cache-Control"], "no-store")                # answers are never kept by caches
+
+    def test_search_engines_see_the_start_page_only(self):
+        """Pages of results are not indexed and the API is off limits to crawlers, whose searches
+        would spend the OpenAlex budget."""
+        robots = self.web.get("/robots.txt")
+        self.assertEqual(robots.get_data(as_text=True), "User-agent: *\nDisallow: /api/\n")
+        with self.web.get("/") as home, self.web.get("/?q=protein+folding") as results:
+            self.assertNotIn("X-Robots-Tag", home.headers)
+            self.assertEqual(results.headers["X-Robots-Tag"], "noindex")
 
     def test_related_papers_follow_citation_links(self):
         """A chain of five papers, each citing the one before; the drawer lists the citation links
@@ -106,6 +125,46 @@ class AppTests(unittest.TestCase):
         r = self.web.get("/api/search?q=protein+AND+(folding").get_json()       # unreadable: words searched instead
         self.assertGreater(r["total"], 0)
         self.assertEqual(self.web.get("/api/paper?key=doi:10.9/missing").status_code, 404)
+
+
+class LimitTests(unittest.TestCase):
+    """How often one visitor may search (VisitorLimit) and how long a search may be."""
+
+    def test_a_visitor_waits_after_too_many_searches(self):
+        web = create_app(protein_pipeline(), admin_settings=False, searches_per_minute=3).test_client()
+        for _ in range(3):
+            self.assertEqual(web.get("/api/search?q=protein+folding").status_code, 200)
+        with self.assertLogs("paperscope", "WARNING") as logs:
+            r = web.get("/api/paper?key=doi:10.1/pf0")                            # opening a paper counts too
+        self.assertEqual(r.status_code, 429)
+        self.assertGreaterEqual(int(r.headers["Retry-After"]), 1)
+        self.assertIn("Wait", r.get_json()["error"])
+        self.assertIn("127.0.0.1", logs.output[0])
+        other = web.get("/api/search?q=protein+folding", environ_base={"REMOTE_ADDR": "10.0.0.9"})
+        self.assertEqual(other.status_code, 200)                                  # another visitor is not held up
+        self.assertEqual(web.get("/api/suggest?prefix=pro").status_code, 200)    # suggestions are not counted
+
+    def test_the_limit_refills_over_time(self):
+        clock = FakeClock()
+        limit = VisitorLimit(per_minute=6, clock=clock)
+        self.assertEqual([limit.wait_s("a") for _ in range(6)], [0.0] * 6)
+        with self.assertLogs("paperscope", "WARNING") as logs:
+            self.assertAlmostEqual(limit.wait_s("a"), 10.0)
+            self.assertAlmostEqual(limit.wait_s("a"), 10.0)                      # asking again uses no turn
+        self.assertEqual(len(logs.output), 1)                                     # one warning per run of refusals
+        clock.t += 10
+        self.assertEqual(limit.wait_s("a"), 0.0)
+        self.assertEqual(limit.wait_s("b"), 0.0)
+
+    def test_searches_that_are_too_long_are_refused(self):
+        web = create_app(protein_pipeline(), admin_settings=False).test_client()
+        r = web.get("/api/search", query_string={"q": "protein " * 70})              # 560 characters
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("too long", r.get_json()["error"])
+        self.assertEqual(web.get("/api/search", query_string={"q": "protein", "author": "x" * 101}).status_code, 400)
+        self.assertEqual(web.get("/api/search", query_string={"q": "protein " * 60}).status_code, 200)
+        self.assertEqual(web.get("/api/paper", query_string={"key": "doi:10.1/" + "1" * 400}).status_code, 404)
+        self.assertEqual(web.get("/api/suggest", query_string={"prefix": "p" * 5000, "q": "x" * 5000}).status_code, 200)
 
 
 class AdminTests(unittest.TestCase):
@@ -176,6 +235,19 @@ class AdminTests(unittest.TestCase):
         self.assertNotIn("Set-Cookie", r.headers)
         self.assertNotIn("trace", self.web.get("/api/search?q=protein").get_json())
 
+    def test_the_admin_is_not_limited(self):
+        web = create_app(self.pipe, admin_settings=ADMIN, searches_per_minute=1).test_client()
+        web.post("/test-door-4821/", data={"username": "owner", "password": "correct horse battery"})
+        for _ in range(3):
+            self.assertEqual(web.get("/api/search?q=protein+folding").status_code, 200)
+
+    def test_a_huge_sign_in_form_is_refused(self):
+        r = self.web.post("/test-door-4821/", data={"username": "owner", "password": "x" * 20000})
+        self.assertEqual(r.status_code, 413)
+
+    def test_robots_txt_never_names_the_login_page(self):
+        self.assertNotIn("test-door", self.web.get("/robots.txt").get_data(as_text=True))
+
     def test_lock_ends_and_a_right_password_clears_the_count(self):
         clock = FakeClock()
         g = LoginGuard(tries=3, lock_s=60, clock=clock)
@@ -239,6 +311,13 @@ class DeploymentTests(unittest.TestCase):
 
 
 class SetAdminTests(unittest.TestCase):
+    @unittest.skipUnless(os.name == "posix", "file permissions as on a Linux server")
+    def test_env_file_is_readable_by_its_owner_only(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, ".env")
+            update_env(path, {"OPENALEX_API_KEY": "abc"})
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
+
     def test_env_lines_are_added_and_replaced_and_the_rest_kept(self):
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, ".env")

@@ -4,10 +4,12 @@ import os
 import tempfile
 import unittest
 import urllib.parse
+import urllib.request
 from unittest import mock
 
-from engine.papers import paper_from_openalex
-from engine.sources import ArXiv, Budget, Http, RateLimiter, api_query, openalex_number
+from engine.papers import complete, paper_from_openalex
+from engine.sources import (MAX_ANSWER, ArXiv, Budget, Http, RateLimiter, SameHostRedirects, api_query,
+                            openalex_number, urllib_transport)
 from tests.fixtures import FakeClock, client_with, ok, openalex_work, s2_paper, timeout
 
 
@@ -133,13 +135,19 @@ class ClientTests(unittest.TestCase):
                  {"DOI": "10.3/a", "title": ["A real article"], "type": "journal-article",
                   "issued": {"date-parts": [[None]]}, "created": {"date-parts": [[2025, 8, 20]]}}]
         client, transport, _ = client_with({"api.crossref.org/works?": ok({"message": {"items": items}}),
-                                            "api.crossref.org/works/10.3/a": ok({"message": items[1]})},
+                                            "api.crossref.org/works/10.3%2Fa": ok({"message": items[1]})},
                                            order=("crossref",))
         papers, _ = client.search("anything")
         self.assertEqual([p["title"] for p in papers], ["A real article"])
         self.assertEqual(papers[0]["year"], 2025)                          # no issue date: DOI registration year
         p, _ = client.get_paper("10.3/a")
         self.assertEqual(p["title"], "A real article")
+
+    def test_a_doi_cannot_reach_another_crossref_page(self):
+        client, transport, _ = client_with({}, order=("crossref",))
+        client.get_paper("10.1/../../members")
+        url = transport.urls("crossref")[0]
+        self.assertTrue(url.startswith("https://api.crossref.org/works/10.1%2F..%2F..%2Fmembers"), url)
 
     def test_deadline_limits_the_wait(self):
         def slow(method, url, body):
@@ -344,6 +352,53 @@ class NormaliseTests(unittest.TestCase):
         self.assertEqual((pre["published"], pre["venue_quality"]), (False, 0.0))
         self.assertIsNone(paper_from_openalex({"id": "W1"}))
         self.assertEqual(openalex_number("https://openalex.org/W2741809807"), 2741809807)
+
+    def test_answers_are_made_safe_for_the_page(self):
+        """Links that are not web addresses are dropped; counts and years become numbers."""
+        p = complete({"title": "T", "url": "javascript:alert(1)", "oa_url": "data:text/html,<b>x</b>",
+                      "citations": "<img src=x onerror=alert(1)>", "year": "2021"})
+        self.assertEqual((p["url"], p["oa_url"], p["citations"], p["year"]), (None, None, None, 2021))
+        p = complete({"title": "T", "url": "https://example.org/a", "oa_url": "HTTP://example.org/a.pdf",
+                      "citations": "42", "year": None})
+        self.assertEqual((p["url"], p["oa_url"], p["citations"], p["year"]),
+                         ("https://example.org/a", "HTTP://example.org/a.pdf", 42, 0))
+        self.assertIsNone(complete({"title": "T"})["citations"])                 # not known stays not known
+
+
+class TransportTests(unittest.TestCase):
+    """The real HTTP layer (urllib_transport), without the network."""
+
+    def redirect(self, old, new):
+        req = urllib.request.Request(old)
+        return SameHostRedirects().redirect_request(req, None, 301, "Moved", {}, new)
+
+    def test_redirects_stay_on_the_same_https_host(self):
+        self.assertIsNotNone(self.redirect("https://api.openalex.org/works?x=1", "https://api.openalex.org/works?x=2"))
+        self.assertIsNone(self.redirect("https://api.openalex.org/works", "http://api.openalex.org/works"))
+        self.assertIsNone(self.redirect("https://api.openalex.org/works", "https://169.254.169.254/latest/meta-data"))
+        self.assertIsNone(self.redirect("https://api.crossref.org/works/x", "https://evil.example/works/x"))
+
+    def test_a_huge_answer_is_refused(self):
+        class Answer:
+            status, headers = 200, {}
+
+            def __init__(self, size):
+                self.size = size
+
+            def read(self, n=-1):
+                return b"x" * min(self.size, n if n >= 0 else self.size)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        with mock.patch("engine.sources._OPENER.open", return_value=Answer(MAX_ANSWER + 10)):
+            with self.assertRaises(ValueError):
+                urllib_transport("GET", "https://api.openalex.org/works", None, {}, 5)
+        with mock.patch("engine.sources._OPENER.open", return_value=Answer(1000)):
+            self.assertEqual(urllib_transport("GET", "https://api.openalex.org/works", None, {}, 5)[2], b"x" * 1000)
 
 
 if __name__ == "__main__":
