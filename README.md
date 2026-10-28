@@ -194,21 +194,21 @@ with fewer words, by title). Everything below is free:
 | Cache file (optional) | `PAPERSCOPE_CACHE_FILE=data/cache/api-cache.jsonl` in `.env` keeps every answer for 7 days (`PAPERSCOPE_CACHE_DAYS`), at most 200 MB (`PAPERSCOPE_CACHE_MB`). Off by default: then nothing is written to disk. The file holds only paper details, never a key, and `data/cache/` is in `.gitignore`. |
 | Semantic Scholar key | Free from https://www.semanticscholar.org/product/api#api-key-form. Put it in `.env` as `S2_API_KEY=...`; without it that source often answers "too many requests". |
 
-Measured live on the 27 check queries (`scripts/check_queries.py`, a fresh
-memory for each query):
+Measured live on the 27 check queries (`scripts/check_queries.py`, the answers
+forgotten before each query), 2026-10-28:
 
-| Mode | OpenAlex cost | Right titles in the top 10 | First result right |
-|---|---|---|---|
-| Normal | $0.072 (72 searches) | 81% | 26 of 27 |
-| Saver (`--saver`) | $0.023 | 81% | 24 of 27 |
+| Mode | OpenAlex cost | Right titles in the top 10 | First result right | Median time |
+|---|---|---|---|---|
+| Normal | $0.072 (72 searches) | 81% | 26 of 27 | 2.1 s |
+| Saver, arXiv answering | $0.014 | 81% | 25 of 27 | 2.9 s |
+| Saver, arXiv refusing | $0.022 | 81% | 24 of 27 | 0.9 s |
 
-The normal row's quality is from the 4.0 run (the normal path did not change),
-and its cost counts the searches each query starts. So saver mode makes the day's budget last about three times as long, for about
-1,170 new questions a day instead of about 370. arXiv and Europe PMC could not be
-reached from the test machine (its network allows only some hosts), so in this
-run saver mode fell back to one OpenAlex keyword search per query; on a normal
-connection they answer first and OpenAlex is asked even less. They are covered
-by unit tests with recorded answers.
+So saver mode makes the day's budget last three to five times as long. Europe
+PMC answered all 7 biology and medicine questions, 6 of them without any OpenAlex
+request. arXiv answered 9 computer science and physics questions on its own (all
+with the right first result) until it started refusing this test machine ("Rate
+exceeded", HTTP 429): the machine shares its internet address with other users.
+A refusing source is skipped for a minute, so it costs no time after the first try.
 
 ## Train
 

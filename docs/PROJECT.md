@@ -322,8 +322,8 @@ $0.001 of a $1 daily allowance.
 * **API keys and limits.** OpenAlex needs a free key once the shared budget is
   used up; Semantic Scholar mostly answers "too many requests" without a key;
   Crossref often has no abstracts, which weakens word and meaning features for
-  its papers. arXiv gives no citation counts. arXiv and Europe PMC were tested
-  with recorded answers only, because the test machine could not reach them.
+  its papers. arXiv gives no citation counts, allows one request every 3 seconds, and
+  refuses a busy shared address for a while ("Rate exceeded").
 * **Cache file for one app at a time.** Two copies of the app writing the same
   cache file at once would mix their lines; use one file per running app.
 * **Ranker trained offline.** The shipped models were trained on a snapshot pool
@@ -680,22 +680,33 @@ queries). Version 4.1 adds four free ways to spend less:
 Requests are not sent through several OpenAlex accounts to get more budget:
 that is against OpenAlex's terms and can get the key blocked.
 
-**Measured** on the 27 live check queries, a fresh memory for each:
+**Measured** on the 27 live check queries (2026-10-28), one client for all of
+them, its answers forgotten before each query:
 
 | Mode | OpenAlex cost | Right titles in the top 10 | First result right | Median time |
 |---|---|---|---|---|
-| Normal | $0.072 (72 searches) | 81% | 26 of 27 | 1.8 s |
-| Saver | $0.023 | 81% | 24 of 27 | 2.8 s |
+| Normal | $0.072 (72 searches) | 81% | 26 of 27 | 2.1 s |
+| Saver, arXiv answering | $0.014 | 81% | 25 of 27 | 2.9 s |
+| Saver, arXiv refusing | $0.022 | 81% | 24 of 27 | 0.9 s |
 
-The normal row's quality and time are from the 4.0 run (that path did not
-change); its cost counts the searches each query starts. Saver mode lost the
-first place on "make neural networks smaller so they run on phones" (2nd),
-"self-driving cars seeing pedestrians at night" (6th) and "translating
-languages without parallel data" (2nd), the queries the search by meaning had
-helped most. The test machine could not reach arXiv or Europe PMC (its network
-allows only some hosts) and Semantic Scholar answered "too many requests", so
-those attempts only added time, and every saver search ended at one OpenAlex
-keyword search. On a normal connection the free sources answer first.
+Europe PMC answered all 7 biology and medicine questions, 6 without an OpenAlex
+request. arXiv answered 9 computer science and physics questions alone, every
+one with the right first result, then refused the test machine for over half an
+hour ("Rate exceeded"): the machine shares its address with other users, and the
+first run had sent a request per query without the 3-second spacing (one client
+per query). Semantic Scholar refused every request without a key. Saver mode lost
+the first place on "make neural networks smaller so they run on phones" and
+"translating languages without parallel data" (2nd each), questions where the
+search by meaning helps most.
+
+Two fixes came from the live answers. Europe PMC also searches full texts, where
+common method papers ("limma powers differential expression analyses") mention
+every word, so searches are limited to titles and abstracts (`TITLE_ABS:`). Both
+free sources want every word by default, and a long question rarely has all its
+words in one abstract ("what causes alzheimers disease" found nothing there), so
+more than 3 words are joined with OR and the source's relevance order puts the
+papers with the most of them first (`free_query_words`). Europe PMC then found
+papers for 7 of 7 biology questions instead of 2.
 
 The cache file, on 500 answers of 50 papers each (37.5 MB): writing an answer
 0.29 ms, reading one 0.20 ms, rebuilding the hash map when the app starts

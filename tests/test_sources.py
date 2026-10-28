@@ -226,7 +226,7 @@ EPMC = {"hitCount": 2, "resultList": {"result": [
      "journalInfo": {"journal": {"title": "Nature"}}, "citedByCount": 321,
      "fullTextUrlList": {"fullTextUrl": [{"availabilityCode": "OA", "documentStyle": "html", "url": "https://x/html"},
                                          {"availabilityCode": "OA", "documentStyle": "pdf", "url": "https://x/pdf"}]}},
-    {"id": "PPR1", "source": "PPR", "title": "A bioRxiv preprint", "pubYear": "2024", "citedByCount": 0},
+    {"id": "PPR1", "source": "PPR", "title": "A &lt;i&gt;bioRxiv&lt;/i&gt; preprint", "pubYear": "2024", "citedByCount": 0},
 ]}}
 
 
@@ -242,16 +242,18 @@ class FreeSourceTests(unittest.TestCase):
         self.assertEqual(a["arxiv_id"], "2104.01234")
         self.assertEqual(a["title"], "Deep Reinforcement Learning for Autonomous Navigation")
         self.assertEqual((a["authors"], a["year"], a["categories"]), ("Ada Lovelace, Alan Turing", 2021, "cs.RO cs.LG"))
-        self.assertEqual((a["doi"], a["venue"], a["published"]), ("10.1109/lra.2021.1", "IEEE RA-L 6 (2021)", True))
+        self.assertEqual((a["doi"], a["venue"], a["published"]), ("10.1109/lra.2021.1", "", True))
         self.assertEqual((a["oa_url"], a["citations"]), ("http://arxiv.org/pdf/2104.01234v2", None))
         self.assertEqual((b["published"], b["doi"]), (False, None))
 
     def test_arxiv_query_syntax(self):
         self.assertEqual(ArXiv.search_query("the protein folding -review"),
-                         "all:protein AND all:folding ANDNOT all:review")
+                         "(all:protein AND all:folding) ANDNOT all:review")
         self.assertEqual(ArXiv.search_query("qubits", 2020, 2022),
                          "all:qubits AND submittedDate:[202001010000 TO 202212312359]")
         self.assertEqual(ArXiv.search_query("the of"), "")
+        self.assertEqual(ArXiv.search_query("teaching computers to recognise emotions -survey"),
+                         "(all:teaching OR all:computers OR all:recognise OR all:emotions) ANDNOT all:survey")
 
     def test_europe_pmc_results(self):
         client, transport, _ = client_with({"ebi.ac.uk/europepmc": ok(EPMC)}, order=(), field_sources=("europepmc",))
@@ -259,9 +261,9 @@ class FreeSourceTests(unittest.TestCase):
         a, b = papers
         self.assertEqual((a["title"], a["doi"], a["venue"], a["citations"]), ("CRISPR off-target effects", "10.1038/s41586-1", "Nature", 321))
         self.assertEqual((a["abstract"], a["oa_url"], a["published"]), ("We measure off-target edits.", "https://x/pdf", True))
-        self.assertEqual((b["published"], b["venue"]), (False, ""))
+        self.assertEqual((b["published"], b["venue"], b["title"]), (False, "", "A bioRxiv preprint"))
         self.assertEqual(report[0]["provider"], "Europe PMC")
-        self.assertIn("PUB_YEAR:[2018 TO 2100]", query_of(transport.calls[0]["url"])["query"])
+        self.assertEqual(query_of(transport.calls[0]["url"])["query"], "TITLE_ABS:(crispr AND off-target) AND PUB_YEAR:[2018 TO 2100]")
 
     def test_the_field_picks_the_free_source(self):
         client, _, _ = client_with({}, field_sources=("arxiv", "europepmc"))

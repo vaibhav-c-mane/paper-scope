@@ -61,26 +61,33 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--exact", action="store_true", help="search the words as typed")
     ap.add_argument("--saver", action="store_true", help="saver mode, as when the day's budget is nearly used up")
+    ap.add_argument("--sources", action="store_true", help="also print which source answered each query")
     args = ap.parse_args()
     os.environ["PAPERSCOPE_SAVER"] = "on" if args.saver else "off"
     models = os.path.join(HERE, "data", "models")
     lex = Lexicon.load(lexicon_dir(models))
-    p10s, firsts, times, spent = [], [], [], 0.0
+    p10s, firsts, times = [], [], []
+    # one client for all queries, as in the app (rate limits and cool-downs carry over), but
+    # with its answers forgotten before each query
+    client = ScholarlyClient(cache_file=None)
     for q, pattern in CASES:
-        pipe = SearchPipeline(models_dir=models, client=ScholarlyClient(cache_file=None), lexicon=lex)
+        client.cache.memory.clear()
+        pipe = SearchPipeline(models_dir=models, client=client, lexicon=lex)
         t0 = time.perf_counter()
         res = pipe.search(q, per_page=10, exact=args.exact)
         times.append(time.perf_counter() - t0)
-        spent += pipe.client.budget()["spent_usd"]
         rx = re.compile(pattern, re.I)
         hits = [bool(rx.search(" ".join(p["title"].lower().split()))) for p in res["results"]]
         first = next((i + 1 for i, h in enumerate(hits) if h), None)
         p10s.append(sum(hits) / 10)
         firsts.append(first)
         print(f"{sum(hits):2d}/10  first match: {first or '-':>2}  {times[-1]:.1f} s  {q}")
+        if args.sources:
+            print("        " + ", ".join(f"{p['provider']} {p['results']}" if p.get("ok") else f"{p['provider']} failed"
+                                     for p in res["trace"]["online"]["providers"]))
     print(f"\nmatching titles in the top 10: {statistics.mean(p10s):.0%}; first result matches in "
           f"{sum(1 for f in firsts if f == 1)} of {len(CASES)} queries; median time {statistics.median(times):.1f} s; "
-          f"OpenAlex cost ${spent:.3f}")
+          f"OpenAlex cost ${client.budget()['spent_usd']:.3f}")
 
 
 if __name__ == "__main__":

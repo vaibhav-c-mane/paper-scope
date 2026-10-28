@@ -26,6 +26,7 @@ What makes it fast and safe to use:
 * Missing fields. Every provider's answer is normalised into the same paper
   dict (engine/papers.py); records without a title are dropped.
 """
+import html
 import json
 import os
 import re
@@ -320,7 +321,8 @@ def arxiv_doi(arxiv_id):
 
 
 def _clean(s):
-    return " ".join(_TAGS.sub(" ", s or "").split())
+    """Text without HTML tags or entities ("&lt;i&gt;Mycobacterium&lt;/i&gt;" -> "Mycobacterium")."""
+    return " ".join(_TAGS.sub(" ", html.unescape(_TAGS.sub(" ", s or ""))).split())
 
 
 def api_query(query):
@@ -333,6 +335,20 @@ def api_query(query):
         else:
             out.append(t)
     return " ".join(out)
+
+
+def free_query_words(query):
+    """(words, excluded words, operator) for arXiv and Europe PMC, which want every word by
+    default: a long question rarely has all its words in one abstract ("what causes
+    alzheimers disease" finds nothing there), so more than 3 words are joined with OR, and the
+    source's relevance order puts the papers with the most of them first."""
+    from engine.text import STOP
+    plus, minus = [], []
+    for t in query.replace("*", " ").split():
+        word = re.sub(r"[^\w-]", "", t.lstrip("-")).lower()
+        if word and word not in STOP:
+            (minus if t.startswith("-") and len(t) > 1 else plus).append(word)
+    return plus, minus, "OR" if len(plus) > 3 else "AND"
 
 
 def openalex_number(work_id):
@@ -585,17 +601,13 @@ class ArXiv:
 
     @staticmethod
     def search_query(query, year_from=None, year_to=None):
-        """'protein folding -review' -> 'all:protein AND all:folding ANDNOT all:review'."""
-        from engine.text import STOP
-        plus, minus = [], []
-        for t in query.replace("*", " ").split():
-            word = re.sub(r"[^\w-]", "", t.lstrip("-")).lower()
-            if not word or word in STOP:
-                continue
-            (minus if t.startswith("-") and len(t) > 1 else plus).append("all:" + word)
-        q = " AND ".join(plus)
-        if minus:
-            q += " ANDNOT " + " ANDNOT ".join(minus)
+        """'protein folding -review' -> '(all:protein AND all:folding) ANDNOT all:review'."""
+        plus, minus, op = free_query_words(query)
+        q = f" {op} ".join("all:" + w for w in plus)
+        if len(plus) > 1 and (minus or year_from or year_to):
+            q = f"({q})"
+        if q and minus:
+            q += "".join(" ANDNOT all:" + w for w in minus)
         if q and (year_from or year_to):
             q += f" AND submittedDate:[{year_from or 1900}01010000 TO {year_to or 2100}12312359]"
         return q
@@ -640,7 +652,7 @@ class ArXiv:
             "abstract": text("a:summary"),
             "categories": " ".join(cats),
             "year": int(published[:4]) if published[:4].isdigit() else 0,
-            "venue": journal,
+            "venue": "",                    # journal_ref is free text ("Wang, F., ... (2018)"), not a venue name
             "published": bool(doi or journal),
             "doi": doi, "url": links.get("alternate") or text("a:id"), "oa_url": links.get("pdf"),
             "citations": None, "source": self.name,
@@ -658,9 +670,14 @@ class EuropePMC:
         self.limiter = RateLimiter(5, burst=2, clock=http.clock, sleep=http.sleep)
 
     def search(self, query, limit, deadline=None, year_from=None, year_to=None):
-        q = api_query(query)
+        # title and abstract only: by default Europe PMC also matches full texts, where any
+        # common method paper ("limma ...") mentions every word somewhere
+        plus, minus, op = free_query_words(query)
+        if not plus:
+            return []
+        q = f"TITLE_ABS:({f' {op} '.join(plus)})" + "".join(f" NOT TITLE_ABS:{w}" for w in minus)
         if year_from or year_to:
-            q = f"({q}) AND PUB_YEAR:[{year_from or 1900} TO {year_to or 2100}]"
+            q += f" AND PUB_YEAR:[{year_from or 1900} TO {year_to or 2100}]"
         params = {"query": q, "format": "json", "resultType": "core", "pageSize": min(100, limit)}
         if os.environ.get("OPENALEX_EMAIL"):
             params["email"] = os.environ["OPENALEX_EMAIL"]
