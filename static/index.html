@@ -4,54 +4,121 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PaperScope</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 16 16%22%3E%3Ccircle cx=%228%22 cy=%228%22 r=%226%22 fill=%22none%22 stroke=%22%23c96442%22 stroke-width=%222.5%22/%3E%3C/svg%3E">
+<meta name="description" content="Find research papers by asking in plain words.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect x=%224%22 y=%2213%22 width=%2224%22 height=%229%22 rx=%222%22 fill=%22%23FFE14D%22/%3E%3Ccircle cx=%2214%22 cy=%2214%22 r=%228%22 fill=%22none%22 stroke=%22%232D3FA8%22 stroke-width=%223.5%22/%3E%3Cpath d=%22M20 20l7 7%22 stroke=%22%232D3FA8%22 stroke-width=%223.5%22 stroke-linecap=%22round%22/%3E%3C/svg%3E">
+<script>
+  // the saved theme is applied before the page draws, so it never flashes the other one
+  try { const t = localStorage.getItem("paperscope.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap">
 <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-<header class="top">
-  <div class="brand"><span class="logo">◎</span> PaperScope</div>
-  <div class="small muted" id="state"></div>
+<body class="is-home">
+<svg width="0" height="0" class="sprite" aria-hidden="true">
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M15.5 15.5 21 21" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="16" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="10" cy="17" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="6" r="1.6" fill="currentColor"/><circle cx="15" cy="12" r="1.6" fill="currentColor"/><circle cx="10" cy="18" r="1.6" fill="currentColor"/></symbol>
+</svg>
+
+<div class="progress" id="progress" aria-hidden="true"></div>
+
+<header class="bar">
+  <a class="wordmark" href="/" id="home-link" aria-label="PaperScope home">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="13" width="24" height="9" rx="2" class="mark-hl"/><circle cx="14" cy="14" r="8" class="mark-ring"/><path d="M20 20l7 7" class="mark-ring"/></svg>
+    <span>PaperScope</span>
+  </a>
+  <form class="search" id="search" role="search" autocomplete="off">
+    <svg class="search-icon" aria-hidden="true"><use href="#i-search"/></svg>
+    <input id="q" name="q" type="search" placeholder="Ask about a topic, or paste a DOI" aria-label="Search papers"
+           aria-autocomplete="list" aria-controls="suggest" spellcheck="false">
+    <button type="submit" class="search-go">Search</button>
+    <ul class="suggest hidden" id="suggest" role="listbox"></ul>
+  </form>
+  <div class="bar-actions">
+    <div class="pop-wrap">
+      <button class="icon-btn" id="history-btn" type="button" aria-haspopup="true" aria-expanded="false" title="Recent searches">
+        <svg aria-hidden="true"><use href="#i-clock"/></svg><span class="sr">Recent searches</span>
+      </button>
+      <div class="popover hidden" id="history-pop" role="dialog" aria-label="Recent searches"></div>
+    </div>
+    <button class="icon-btn" id="theme-btn" type="button" title="Switch to dark mode">
+      <svg aria-hidden="true"><use href="#i-moon"/></svg><span class="sr">Switch theme</span>
+    </button>
+  </div>
 </header>
 
-<main class="page">
-  <form id="search" class="search" autocomplete="off">
-    <div class="box">
-      <input id="q" placeholder="Search papers: plain words, AND / OR / NOT, -word, prefix*, DOI, arXiv or OpenAlex id">
-      <button type="submit" class="go" title="Search">Search</button>
-      <ul class="suggest hidden" id="suggest"></ul>
+<main>
+  <section class="home" id="home">
+    <h1 class="home-title">Find the paper you are looking for</h1>
+    <p class="home-lede">Ask in plain words, the way you would ask a librarian. PaperScope searches open
+      catalogues of research papers and puts the ones that answer your question first.</p>
+    <div class="home-search-slot" id="home-slot"></div>
+    <div class="home-examples" id="examples">
+      <span class="muted">For example</span>
+      <button type="button" class="link" data-q="How does reinforcement learning improve autonomous vehicle navigation at night?">reinforcement learning for self-driving at night</button>
+      <button type="button" class="link" data-q="making neural networks smaller for phones">making neural networks smaller for phones</button>
+      <button type="button" class="link" data-q="CRISPR off-target effects">CRISPR off-target effects</button>
+      <button type="button" class="link" data-q="attention is all you need">attention is all you need</button>
     </div>
-    <div class="filters">
-      <label>Year <input id="year_from" type="number" placeholder="from" min="1900" max="2100"> – <input id="year_to" type="number" placeholder="to" min="1900" max="2100"></label>
-      <label>Author <input id="author" placeholder="e.g. Hinton"></label>
-      <label>Field <select id="field"><option value="">detect automatically</option></select></label>
-      <label class="check"><input type="checkbox" id="strict"> only this field</label>
-      <label>Sort <select id="sort"><option value="relevance">relevance</option><option value="year">newest</option><option value="citations">most cited</option></select></label>
-      <label>Internet <select id="online"><option value="auto">when memory is not enough</option><option value="always">always</option><option value="never">never (memory only)</option></select></label>
-      <label>Ranking <select id="mode"><option value="learned">learned ranker</option><option value="hybrid">hand-set weights</option><option value="bm25">BM25 only</option><option value="semantic">embeddings only</option></select></label>
+    <div class="home-history" id="home-history"></div>
+  </section>
+
+  <section class="results-view hidden" id="results-view">
+    <div class="filters" id="filters">
+      <label class="field-inline">From <input id="year_from" type="number" inputmode="numeric" placeholder="year" min="1900" max="2100"></label>
+      <label class="field-inline">to <input id="year_to" type="number" inputmode="numeric" placeholder="year" min="1900" max="2100"></label>
+      <label class="field-inline"><span class="sr">Field</span><select id="field"><option value="">Any field</option></select></label>
+      <label class="field-inline"><span class="sr">Sort by</span><select id="sort">
+        <option value="relevance">Most relevant</option><option value="year">Newest first</option><option value="citations">Most cited</option></select></label>
+      <button type="button" class="chip-btn" id="more-btn" aria-expanded="false" aria-controls="more">
+        <svg aria-hidden="true"><use href="#i-sliders"/></svg>More filters</button>
+      <button type="button" class="link small hidden" id="reset-filters">Clear filters</button>
+      <div class="more hidden" id="more">
+        <label class="field-inline">Author <input id="author" placeholder="e.g. Hinton"></label>
+        <label class="check"><input type="checkbox" id="strict"> Only papers from the chosen field</label>
+      </div>
     </div>
-  </form>
 
-  <div class="examples" id="examples">
-    <span class="muted small">Try:</span>
-    <button data-q="graph neural networks for molecules">graph neural networks for molecules</button>
-    <button data-q="making neural networks smaller for phones">making neural networks smaller for phones</button>
-    <button data-q="deep AND (vision OR image) NOT survey">deep AND (vision OR image) NOT survey</button>
-    <button data-q="CRISPR off-target effects" data-field="Biology &amp; Medicine">CRISPR off-target effects</button>
-    <button data-q="10.48550/arXiv.1706.03762">10.48550/arXiv.1706.03762</button>
-  </div>
-
-  <div class="layout">
-    <section id="results" class="results"></section>
-    <aside id="trace" class="trace hidden"></aside>
-  </div>
+    <div class="content">
+      <div class="notice-slot" id="notice"></div>
+      <div class="summary" id="summary"></div>
+      <ol class="results" id="results"></ol>
+      <nav class="pager" id="pager" aria-label="Result pages"></nav>
+    </div>
+  </section>
 </main>
 
-<div class="drawer hidden" id="drawer">
-  <div class="drawer-card">
-    <button class="close" id="drawer-close" title="Close">×</button>
-    <div id="drawer-body"></div>
+<div class="sheet-backdrop hidden" id="backdrop"></div>
+
+<aside class="sheet hidden" id="paper-sheet" role="dialog" aria-modal="true" aria-labelledby="paper-title">
+  <button class="icon-btn sheet-close" type="button" data-close title="Close"><svg aria-hidden="true"><use href="#i-close"/></svg><span class="sr">Close</span></button>
+  <div class="sheet-body" id="paper-body"></div>
+</aside>
+
+<aside class="sheet sheet-narrow hidden" id="how-sheet" role="dialog" aria-modal="true" aria-labelledby="how-title">
+  <button class="icon-btn sheet-close" type="button" data-close title="Close"><svg aria-hidden="true"><use href="#i-close"/></svg><span class="sr">Close</span></button>
+  <div class="sheet-body">
+    <h2 id="how-title" class="sheet-title">How this search worked</h2>
+    <p class="muted small">The steps PaperScope took for this search, and the data structures behind them.</p>
+    <div id="how-body" class="how"></div>
+    <h3 class="how-h">Test settings</h3>
+    <label class="stack-field">Ranking method
+      <select id="mode"><option value="learned">Learned ranker (default)</option><option value="hybrid">Hand-set weights</option>
+        <option value="bm25">Word match only (BM25)</option><option value="semantic">Meaning only (embeddings)</option></select></label>
+    <label class="stack-field">Ask the internet
+      <select id="online"><option value="auto">When memory is not enough (default)</option><option value="always">Always</option>
+        <option value="never">Never, memory only</option></select></label>
+    <div id="system" class="how small"></div>
   </div>
-</div>
+</aside>
+
+<div class="toast hidden" id="toast" role="status"></div>
 <script src="/static/app.js"></script>
 </body>
 </html>

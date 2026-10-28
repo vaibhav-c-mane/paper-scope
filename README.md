@@ -69,21 +69,39 @@ To avoid typing the key in every new terminal, copy `.env.example` to `.env`
 in the paper-search folder and fill in `OPENALEX_API_KEY=...`. PaperScope reads
 it on start. Keep `.env` to yourself: don't share it or put it in a zip you hand in.
 
-The page shows the results and, next to them, how the search worked: which
-words were used, whether the internet was asked and which provider answered,
-how many candidates came from the inverted index and the vector index, the
-detected research field, and the stack steps of a boolean query. Click a paper
-to see why it ranked where it did (its nine feature values), its related
-papers (closest first by Dijkstra's shortest paths over citation, related-work
-and similarity links; the papers around it are fetched from OpenAlex the first
-time it is opened) and its citation links (breadth-first search). While you
-type, paper titles in memory that start with your text are suggested.
+The web page starts with one search box. Results show each paper's title,
+authors, venue and year, the start of its abstract with your words marked, how
+well it matches your search, and whether it is peer reviewed, how often it is
+cited and whether a free full text exists. Filters (years, field, sort, author)
+apply as soon as you change them, and the search is kept in the address bar, so
+Back, Forward and shared links work.
 
-![Search page](docs/search.png)
+* **Paper details.** Click a title to open its details: buttons to open the
+  paper, read the free full text or copy a citation; its related papers
+  (closest first by Dijkstra's shortest paths over citation, related-work and
+  similarity links) and citation links (breadth-first search); and "Why it
+  ranked here" (its nine feature values).
+* **Recent searches.** Kept for the open browser tab only, with no account: on
+  the start page, under the clock button, and in the suggestions while you type.
+  Closing the tab, or "Clear history", removes them.
+* **Light and dark.** The page follows your system setting; the sun and moon
+  button switches it and remembers your choice in this browser.
+* **How this search worked.** A link above the results opens the engine's
+  trace: the words searched, which sources answered, how many candidates came
+  from the inverted index and the vector index, the detected field, the stack
+  steps of a boolean query, the ranking, the API budget, and test settings
+  (ranking method, when to ask the internet).
 
-Screenshots were taken against the live OpenAlex API, with a key: this one on
-2026-10-19, and [docs/paper.png](docs/paper.png) (a paper with its related
-papers) on 2026-10-22. See "Live test" below.
+![Start page](docs/home.png)
+
+![Results](docs/search.png)
+
+![Paper details](docs/paper.png)
+
+![Dark mode](docs/dark.png)
+
+Screenshots were taken against the live APIs, with an OpenAlex key, on
+2026-10-28. See "Live test" below.
 
 Command line (same pipeline):
 
@@ -188,8 +206,8 @@ with fewer words, by title). Everything below is free:
 
 | What | How it saves |
 |---|---|
-| Budget meter | OpenAlex reports the day's remaining budget on every answer. The header of the page shows it ("OpenAlex budget: $0.62 of $1.00 left, full again in 3 h"). |
-| Saver mode | Below 20% left, or when the budget is used up, the free source for the query's field is asked first (arXiv for computer science, physics and maths; Europe PMC for biology and medicine), then Semantic Scholar, and OpenAlex only if they find too little. The extra OpenAlex searches are skipped. `PAPERSCOPE_SAVER=on` or `off` forces it. |
+| Budget meter | OpenAlex reports the day's remaining budget on every answer. "How this search worked" shows it ("OpenAlex budget today: $0.862 of $1.00 left, full again in 15 h"). |
+| Saver mode | Below 20% left, or when the budget is used up, the free source for the query's field is asked first (arXiv for computer science, physics and maths; Europe PMC for biology and medicine), then Semantic Scholar, and OpenAlex only if they find too little. The extra OpenAlex searches are skipped, and "How this search worked" says so. `PAPERSCOPE_SAVER=on` or `off` forces it. |
 | Free sources as a fallback | Outside saver mode, arXiv or Europe PMC is asked when OpenAlex fails or finds too little, before Semantic Scholar and Crossref. |
 | Cache file (optional) | `PAPERSCOPE_CACHE_FILE=data/cache/api-cache.jsonl` in `.env` keeps every answer for 7 days (`PAPERSCOPE_CACHE_DAYS`), at most 200 MB (`PAPERSCOPE_CACHE_MB`). Off by default: then nothing is written to disk. The file holds only paper details, never a key, and `data/cache/` is in `.gitignore`. |
 | Semantic Scholar key | Free from https://www.semanticscholar.org/product/api#api-key-form. Put it in `.env` as `S2_API_KEY=...`; without it that source often answers "too many requests". |
@@ -396,7 +414,7 @@ scripts/
   fetch_openalex.py    training papers from the OpenAlex snapshot
   ds_examples.py       the worked data structure examples in docs/PROJECT.md
   check_queries.py     26 everyday queries against live OpenAlex (search quality)
-static/                the web page
+static/                the web page (index.html, style.css, app.js)
 data/models/           the trained models (the only files the app reads)
 tests/                 unit tests
 ```

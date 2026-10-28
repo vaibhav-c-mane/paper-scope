@@ -1,7 +1,7 @@
 # PaperScope: project documentation
 
 This document describes PaperScope as the code in this folder implements it
-(version 4.1, 27 October 2026). Part 1 explains what the project does and how it
+(version 4.2, 28 October 2026; the web page was redesigned in 4.2). Part 1 explains what the project does and how it
 is built, including a plain explanation of the learned ranker (section 11), of
 how everyday queries are understood (section 12, new in 3.5), how the match
 shown next to each result is computed (section 13, new in 3.6), and how long
@@ -158,7 +158,7 @@ paper-search/
 | Module | Responsibility |
 |---|---|
 | `app.py` | Creates one `SearchPipeline` with a `ScholarlyClient`, validates request parameters and returns JSON. Memory limit from `PAPERSCOPE_CAPACITY` (default 20,000 papers). |
-| `static/app.js` | The single page: search form, result list, side panel ("trace") that shows how the search worked, paper drawer, word suggestions as you type. |
+| `static/app.js` | The single page: start page, results with filters kept in the address bar, paper details sheet (related papers, citation links, copy citation, why it ranked here), recent searches for the open tab (sessionStorage, no account), light and dark themes, suggestions as you type, and the "How this search worked" sheet with the engine's trace and test settings. |
 | `scripts/search.py` | The same pipeline from the terminal. Several queries in one call share the in-memory index, so the second can be answered from memory. |
 | `engine/pipeline.py` | `parse_query` splits the query. `PreparedQuery` computes everything that depends only on the query (word ids, embedding, field distribution). `SearchPipeline` retrieves candidates, filters, computes features, ranks, decides whether to go online, sorts and pages the results, looks papers up by identifier and lists a paper's related papers. A re-entrant lock protects the shared index; the network call happens outside the lock. |
 | `engine/understand.py` | `QueryUnderstanding` turns the typed text into what to search for: corrects typos with a noisy-channel spelling model whose word counts are the Lexicon's document frequencies, drops request words ("find me papers on"), turns "recent" / "latest" into a year filter, and says whether to also search by meaning or by title. |
