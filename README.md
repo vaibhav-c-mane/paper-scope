@@ -173,6 +173,10 @@ python wsgi.py                          # port $PORT (default 8000)
 PAPERSCOPE_HTTPS=off python wsgi.py     # to try it on your own computer: http://127.0.0.1:8000
 ```
 
+**For free:** [docs/FREE_HOSTING.md](docs/FREE_HOSTING.md) walks through it from scratch: a
+free Oracle Cloud server, a free DuckDNS address, free HTTPS from Caddy, and
+`deploy/oracle-setup.sh`, which installs and updates everything with one command.
+
 On a host (Render, Railway, Heroku, PythonAnywhere, your own server...):
 
 1. Upload the project with git. `.env` stays on your computer (it is in
@@ -468,6 +472,7 @@ understanding (spelling, request words, recency, fusion), the pipeline end to en
 ```
 app.py                 web app (Flask) and JSON API; python app.py on your own computer
 wsgi.py                the same app on a production server (waitress) for a public site
+deploy/oracle-setup.sh sets up (and updates) a free Oracle Cloud server: app, HTTPS, firewall
 Procfile               start command for hosts that read one: python wsgi.py
 admin/                 the hidden admin login, admin.js and admin.css (signed-in admin only)
 engine/

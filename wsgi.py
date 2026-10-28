@@ -4,9 +4,13 @@ web server that works on Linux and Windows) instead of Flask's development serve
   python wsgi.py          listens on every network address, port $PORT (default 8000)
 
 On a host, set the start command to `python wsgi.py` (the Procfile says so for hosts that read
-one), or point a host's own WSGI setting at `wsgi:application`. Settings, as environment
+one), or point a host's own WSGI setting at `wsgi:application`. On your own server,
+deploy/oracle-setup.sh sets all of this up (docs/FREE_HOSTING.md). Settings, as environment
 variables on the host or in .env:
   PORT                 the port to listen on; most hosts set it themselves
+  PAPERSCOPE_HOST      the network address to listen on (default 0.0.0.0, every one). 127.0.0.1
+                       when a web server on the same machine (Caddy, nginx) passes requests on, so
+                       nobody can reach the app without going through it.
   PAPERSCOPE_PROXIES   how many proxies pass requests on to the app (default 1: the host's).
                        The app finds each visitor's real address with it. 0 only when visitors
                        reach the app directly, with nothing in front of it.
@@ -38,5 +42,5 @@ if __name__ == "__main__":
 
     logging.getLogger("paperscope").info(describe(application))
     # the proxy headers go through untouched: the app decides which entry to trust (app.for_deployment)
-    serve(application, host="0.0.0.0", port=int(_setting("PORT", "8000")),
+    serve(application, host=_setting("PAPERSCOPE_HOST", "0.0.0.0"), port=int(_setting("PORT", "8000")),
           threads=int(_setting("PAPERSCOPE_THREADS", "8")), clear_untrusted_proxy_headers=False)

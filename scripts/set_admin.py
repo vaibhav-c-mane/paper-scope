@@ -71,6 +71,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--new-address", action="store_true", help="move the login page to a new secret address")
     ap.add_argument("--env", default=os.path.join(HERE, ".env"), help="the .env file to write (default: the one next to app.py)")
+    ap.add_argument("--site", help="the site's address, for the login address printed at the end "
+                                   "(default: PAPERSCOPE_SITE in .env, else this computer)")
     args = ap.parse_args()
     old = read_env(args.env)
 
@@ -86,9 +88,10 @@ def main():
 
     values = admin_values(user, password, old, args.new_address)
     update_env(args.env, values)
-    port = os.environ.get("PORT") or old.get("PORT") or "5000"
+    site = args.site or (f"https://{old['PAPERSCOPE_SITE']}" if old.get("PAPERSCOPE_SITE") else
+                         f"http://127.0.0.1:{os.environ.get('PORT') or old.get('PORT') or '5000'}")
     print(f"\nSaved in {args.env}. Restart the app, then sign in at:\n\n"
-          f"    http://127.0.0.1:{port}/{values['PAPERSCOPE_ADMIN_PATH']}/\n\n"
+          f"    {site.rstrip('/')}/{values['PAPERSCOPE_ADMIN_PATH']}/\n\n"
           "Bookmark it and keep it to yourself: nothing on the site links there.")
 
 
