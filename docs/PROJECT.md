@@ -143,13 +143,15 @@ paper-search/
 │   ├── evaluate.py         python -m ml.evaluate: NDCG@10, MRR, P@10, R@50
 │   └── metrics.py          ranking metrics
 ├── data/models/            trained models (15 MB): lexicon/ arrays, ranker.json, ranker_linear.json, eval_report.json
+├── admin/                the hidden admin login: login page, admin.js and admin.css (signed-in admin only)
 ├── scripts/
 │   ├── search.py           command-line search with the same pipeline
+│   ├── set_admin.py        sets the admin username, password hash and secret address in .env
 │   ├── fetch_openalex.py   streams real papers from the OpenAlex snapshot for offline training
 │   ├── ds_examples.py      reproduces the worked examples in Part 2 of this document
 │   └── check_queries.py    26 everyday queries against live OpenAlex (search quality, section 12)
-├── static/                 index.html, app.js, style.css (the web page)
-├── tests/                  97 unit tests, no network needed (fake HTTP transport)
+├── static/                 index.html, app.js, theme.js, style.css (the web page)
+├── tests/                  121 unit tests, no network needed (fake HTTP transport)
 └── docs/                   DESIGN.md, PROJECT.md (this file), screenshots
 ```
 
@@ -157,8 +159,9 @@ paper-search/
 
 | Module | Responsibility |
 |---|---|
-| `app.py` | Creates one `SearchPipeline` with a `ScholarlyClient`, validates request parameters and returns JSON. Memory limit from `PAPERSCOPE_CAPACITY` (default 20,000 papers). |
-| `static/app.js` | The single page: start page, results with filters kept in the address bar, paper details sheet (related papers, citation links, copy citation, why it ranked here), recent searches for the open tab (sessionStorage, no account), light and dark themes, suggestions as you type, and the "How this search worked" sheet with the engine's trace and test settings. |
+| `app.py` | Creates one `SearchPipeline` with a `ScholarlyClient`, validates request parameters and returns JSON. Visitors get the papers, the words to mark and what the search understood; the trace, ranking numbers, budget and test settings only reach the signed-in admin. Memory limit from `PAPERSCOPE_CAPACITY` (default 20,000 papers). |
+| `admin/` | The hidden admin login: a login page at a secret address from `.env`, a scrypt password hash, a signed HttpOnly SameSite=Strict cookie, and a limit of five wrong passwords per address (kept in the LRU cache with expiry). Serves `admin.js` and `admin.css`, which add "How this search worked", the test settings and "Why it ranked here", only to the signed-in admin. Set up with `scripts/set_admin.py`. |
+| `static/app.js` | The single page: start page, results with filters kept in the address bar, first / previous / next / last page, paper details sheet (related papers, citation links, copy citation), recent searches for the open tab (sessionStorage, no account), light and dark themes (`static/theme.js`: dark at night, 7 pm to 7 am, or when the device asks), and suggestions as you type. |
 | `scripts/search.py` | The same pipeline from the terminal. Several queries in one call share the in-memory index, so the second can be answered from memory. |
 | `engine/pipeline.py` | `parse_query` splits the query. `PreparedQuery` computes everything that depends only on the query (word ids, embedding, field distribution). `SearchPipeline` retrieves candidates, filters, computes features, ranks, decides whether to go online, sorts and pages the results, looks papers up by identifier and lists a paper's related papers. A re-entrant lock protects the shared index; the network call happens outside the lock. |
 | `engine/understand.py` | `QueryUnderstanding` turns the typed text into what to search for: corrects typos with a noisy-channel spelling model whose word counts are the Lexicon's document frequencies, drops request words ("find me papers on"), turns "recent" / "latest" into a year filter, and says whether to also search by meaning or by title. |

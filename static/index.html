@@ -5,11 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PaperScope</title>
 <meta name="description" content="Find research papers by asking in plain words.">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect x=%224%22 y=%2213%22 width=%2224%22 height=%229%22 rx=%222%22 fill=%22%23FFE14D%22/%3E%3Ccircle cx=%2214%22 cy=%2214%22 r=%228%22 fill=%22none%22 stroke=%22%232D3FA8%22 stroke-width=%223.5%22/%3E%3Cpath d=%22M20 20l7 7%22 stroke=%22%232D3FA8%22 stroke-width=%223.5%22 stroke-linecap=%22round%22/%3E%3C/svg%3E">
-<script>
-  // the saved theme is applied before the page draws, so it never flashes the other one
-  try { const t = localStorage.getItem("paperscope.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
-</script>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect x=%224%22 y=%2213%22 width=%2224%22 height=%229%22 rx=%222%22 fill=%22%23F0BD3F%22/%3E%3Ccircle cx=%2214%22 cy=%2214%22 r=%228%22 fill=%22none%22 stroke=%22%231B5E45%22 stroke-width=%223.5%22/%3E%3Cpath d=%22M20 20l7 7%22 stroke=%22%231B5E45%22 stroke-width=%223.5%22 stroke-linecap=%22round%22/%3E%3C/svg%3E">
+<script src="/static/theme.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap">
@@ -23,7 +20,10 @@
   <symbol id="i-moon" viewBox="0 0 24 24"><path d="M19.5 14.5A8 8 0 0 1 9.5 4.5a8 8 0 1 0 10 10Z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></symbol>
   <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
   <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="16" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="10" cy="17" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
-  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="6" r="1.6" fill="currentColor"/><circle cx="15" cy="12" r="1.6" fill="currentColor"/><circle cx="10" cy="18" r="1.6" fill="currentColor"/></symbol>
+  <symbol id="i-first" viewBox="0 0 24 24"><path d="M17 6l-6 6 6 6M7 6v12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-last" viewBox="0 0 24 24"><path d="M7 6l6 6-6 6M17 6v12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
 </svg>
 
 <div class="progress" id="progress" aria-hidden="true"></div>
@@ -99,23 +99,6 @@
 <aside class="sheet hidden" id="paper-sheet" role="dialog" aria-modal="true" aria-labelledby="paper-title">
   <button class="icon-btn sheet-close" type="button" data-close title="Close"><svg aria-hidden="true"><use href="#i-close"/></svg><span class="sr">Close</span></button>
   <div class="sheet-body" id="paper-body"></div>
-</aside>
-
-<aside class="sheet sheet-narrow hidden" id="how-sheet" role="dialog" aria-modal="true" aria-labelledby="how-title">
-  <button class="icon-btn sheet-close" type="button" data-close title="Close"><svg aria-hidden="true"><use href="#i-close"/></svg><span class="sr">Close</span></button>
-  <div class="sheet-body">
-    <h2 id="how-title" class="sheet-title">How this search worked</h2>
-    <p class="muted small">The steps PaperScope took for this search, and the data structures behind them.</p>
-    <div id="how-body" class="how"></div>
-    <h3 class="how-h">Test settings</h3>
-    <label class="stack-field">Ranking method
-      <select id="mode"><option value="learned">Learned ranker (default)</option><option value="hybrid">Hand-set weights</option>
-        <option value="bm25">Word match only (BM25)</option><option value="semantic">Meaning only (embeddings)</option></select></label>
-    <label class="stack-field">Ask the internet
-      <select id="online"><option value="auto">When memory is not enough (default)</option><option value="always">Always</option>
-        <option value="never">Never, memory only</option></select></label>
-    <div id="system" class="how small"></div>
-  </div>
 </aside>
 
 <div class="toast hidden" id="toast" role="status"></div>

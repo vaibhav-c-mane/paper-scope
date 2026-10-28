@@ -79,18 +79,48 @@ Back, Forward and shared links work.
 * **Paper details.** Click a title to open its details: buttons to open the
   paper, read the free full text or copy a citation; its related papers
   (closest first by Dijkstra's shortest paths over citation, related-work and
-  similarity links) and citation links (breadth-first search); and "Why it
-  ranked here" (its nine feature values).
+  similarity links) and citation links (breadth-first search).
+* **Pages.** Ten papers a page, with buttons for the first, previous, next and
+  last page, and "Page 3 of 14" between them.
 * **Recent searches.** Kept for the open browser tab only, with no account: on
   the start page, under the clock button, and in the suggestions while you type.
   Closing the tab, or "Clear history", removes them.
-* **Light and dark.** The page follows your system setting; the sun and moon
-  button switches it and remembers your choice in this browser.
+* **Light and dark.** By day a reading-room look (green on pale paper); at night
+  (7 pm to 7 am, or when the device is set to dark) a dark look with warm,
+  softer text that is easier on the eyes. The sun and moon button switches it
+  and remembers the choice in this browser; picking the look the clock would
+  give anyway goes back to switching by the clock.
+
+### Admin login (only for you)
+
+PaperScope is free for everyone and has no user accounts. There is one hidden
+admin login, for you to debug and test the site. Nothing on the page links to
+it, visitors are never sent its code, and it is off until you set it up:
+
+```bash
+python scripts/set_admin.py        # asks for a username and a password (12+ characters)
+```
+
+This writes the username, a scrypt hash of the password (never the password
+itself), a secret address for the login page and a key for the sign-in cookie
+to `.env`, and prints the address, for example
+`http://127.0.0.1:5000/k3V9xQ2pLm7RtY0a/`. Restart the app, open that address
+and sign in. Run it again to change the password (this signs every browser
+out); `--new-address` also moves the login page. Five wrong passwords in a row
+make that address wait 15 minutes, and a sign-in lasts 12 hours.
+
+Signed in, you see an "Admin" mark and a sign-out button at the top, and:
+
 * **How this search worked.** A link above the results opens the engine's
   trace: the words searched, which sources answered, how many candidates came
   from the inverted index and the vector index, the detected field, the stack
   steps of a boolean query, the ranking, the API budget, and test settings
   (ranking method, when to ask the internet).
+* **Why it ranked here.** In a paper's details: its nine feature values.
+
+The server sends the trace, the ranking numbers, the budget and the memory
+figures only to the signed-in admin, and ignores the test settings from anyone
+else, so a visitor cannot make every search go online.
 
 ![Start page](docs/home.png)
 
@@ -206,7 +236,7 @@ with fewer words, by title). Everything below is free:
 
 | What | How it saves |
 |---|---|
-| Budget meter | OpenAlex reports the day's remaining budget on every answer. "How this search worked" shows it ("OpenAlex budget today: $0.862 of $1.00 left, full again in 15 h"). |
+| Budget meter | OpenAlex reports the day's remaining budget on every answer. "How this search worked" (admin only) shows it ("OpenAlex budget today: $0.862 of $1.00 left, full again in 15 h"). |
 | Saver mode | Below 20% left, or when the budget is used up, the free source for the query's field is asked first (arXiv for computer science, physics and maths; Europe PMC for biology and medicine), then Semantic Scholar, and OpenAlex only if they find too little. The extra OpenAlex searches are skipped, and "How this search worked" says so. `PAPERSCOPE_SAVER=on` or `off` forces it. |
 | Free sources as a fallback | Outside saver mode, arXiv or Europe PMC is asked when OpenAlex fails or finds too little, before Semantic Scholar and Crossref. |
 | Cache file (optional) | `PAPERSCOPE_CACHE_FILE=data/cache/api-cache.jsonl` in `.env` keeps every answer for 7 days (`PAPERSCOPE_CACHE_DAYS`), at most 200 MB (`PAPERSCOPE_CACHE_MB`). Off by default: then nothing is written to disk. The file holds only paper details, never a key, and `data/cache/` is in `.gitignore`. |

@@ -1,0 +1,26 @@
+/* Admin tools (admin.js), sent only to the signed-in admin. Colors come from static/style.css. */
+.admin-out { display: flex; align-items: center; gap: 4px; margin: 0; }
+.admin-badge { padding: 3px 9px; border-radius: 999px; background: var(--brand-soft); color: var(--brand);
+               font-size: 12.5px; font-weight: 600; letter-spacing: .02em; }
+
+.sheet-narrow { width: min(460px, 100%); }
+
+/* why it ranked here */
+details.ranking { margin-top: 28px; border-top: 1px solid var(--line); padding-top: 14px; }
+details.ranking summary { cursor: pointer; font-weight: 600; font-size: 15px; }
+.feature-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
+.feature-table td { padding: 6px 0; border-bottom: 1px solid var(--line); }
+.feature-table td:last-child { text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+
+/* how this search worked */
+.how { font-size: 14px; }
+.how-h { font-size: 14px; font-weight: 600; margin: 22px 0 6px; }
+.how table { width: 100%; border-collapse: collapse; }
+.how td { padding: 5px 6px 5px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+.how td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.how .ok { color: var(--good); } .how .err { color: var(--bad); }
+.how .stack { display: flex; flex-wrap: wrap; gap: 3px; }
+.how .stack span { background: var(--brand-soft); border-radius: 4px; padding: 0 5px; font-family: var(--mono); font-size: 12px; }
+.how .saver { margin-top: 8px; color: var(--warn); }
+.stack-field { display: grid; gap: 6px; margin: 12px 0; font-size: 14px; color: var(--ink-2); }
+.stack-field select { width: 100%; color: var(--ink); }

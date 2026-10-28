@@ -1,14 +1,11 @@
 // PaperScope front end: a home page, the results list, a paper sheet, this tab's search history,
-// light and dark themes, and a "How this search worked" sheet with the engine's trace.
+// and light and dark themes (dark at night, static/theme.js). The admin tools (admin/admin.js)
+// are added only for the signed-in admin, through window.paperscope and two events.
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const FILTERS = ["year_from", "year_to", "field", "sort", "author"];
-const FEATURE_NAMES = {
-  bm25: "Word match (BM25)", semantic: "Meaning (embeddings)", title_coverage: "Your words in the title",
-  term_coverage: "Your words anywhere", domain_match: "Same research field", citations: "Citations per year",
-  recency: "Recency", peer_reviewed: "Peer reviewed", venue_quality: "Venue quality",
-};
-const state = { page: 1, exact: false, trace: null, results: [], fieldsLoaded: false, lastFocus: null };
+// last: the latest search answer; extra: more API parameters (the admin's test settings)
+const state = { page: 1, exact: false, last: null, results: [], extra: {}, fieldsLoaded: false, lastFocus: null };
 
 async function getJSON(url) {
   const r = await fetch(url);
@@ -32,21 +29,20 @@ function toast(text) {
   toast.timer = setTimeout(() => t.classList.add("hidden"), 2200);
 }
 
-// ------------------------------------------------------------------ theme
-const darkQuery = window.matchMedia("(prefers-color-scheme: dark)");
-function currentTheme() { return document.documentElement.dataset.theme || (darkQuery.matches ? "dark" : "light"); }
+// ------------------------------------------------------------------ theme (static/theme.js)
+const theme = window.paperscopeTheme;
 function paintThemeButton() {
-  const dark = currentTheme() === "dark";
+  const dark = theme.current() === "dark";
   $("theme-btn").querySelector("use").setAttribute("href", dark ? "#i-sun" : "#i-moon");
   $("theme-btn").title = dark ? "Switch to light mode" : "Switch to dark mode";
 }
+function followClock() { theme.apply(); paintThemeButton(); }
 $("theme-btn").addEventListener("click", () => {
-  const next = currentTheme() === "dark" ? "light" : "dark";
-  document.documentElement.dataset.theme = next;
-  try { localStorage.setItem("paperscope.theme", next); } catch (e) { /* this visit only */ }
+  theme.choose(theme.current() === "dark" ? "light" : "dark");
   paintThemeButton();
 });
-darkQuery.addEventListener("change", paintThemeButton);
+theme.deviceDark.addEventListener("change", followClock);
+setInterval(followClock, 60 * 1000);                          // turns dark at 7 pm, light at 7 am
 
 // ------------------------------------------------------------------ home or results
 function showHome(home) {
@@ -167,7 +163,7 @@ window.addEventListener("popstate", () => {
 function apiParams(page) {
   const p = new URLSearchParams({ q: $("q").value.trim(), page });
   for (const [k, v] of Object.entries(filtersNow())) p.set(k, v);
-  for (const id of ["online", "mode"]) if ($(id).value) p.set(id, $(id).value);
+  for (const [k, v] of Object.entries(state.extra)) if (v) p.set(k, v);
   if (state.exact) p.set("exact", "1");
   return p;
 }
@@ -190,11 +186,11 @@ async function search(page = 1, exact = state.exact, push = true) {
   try {
     const res = await getJSON("/api/search?" + apiParams(page));
     if (seq !== searchSeq) return;                              // a newer search replaced this one
-    state.trace = res.trace;
+    state.last = res;
     state.results = res.results;
     renderResults(res);
     if (page === 1) remember(q, res.total);
-    if (!$("how-sheet").classList.contains("hidden")) renderHow();
+    document.dispatchEvent(new CustomEvent("paperscope:results", { detail: res }));
   } catch (e) {
     if (seq !== searchSeq) return;
     state.results = [];
@@ -256,8 +252,17 @@ function byline(p) {
 }
 
 function renderResults(res) {
-  const words = res.trace.query?.words || [];
-  $("notice").innerHTML = noticeHTML(res.trace.understood);
+  const words = res.words || [];
+  const last = Math.max(1, Math.ceil(res.total / res.per_page));
+  $("notice").innerHTML = noticeHTML(res.understood);
+  if (!res.results.length && res.total > 0) {               // an old link to a page past the end
+    $("summary").innerHTML = "";
+    $("pager").innerHTML = "";
+    $("results").innerHTML = `<li class="state"><h2>There is no page ${res.page.toLocaleString()}</h2>
+      <p>This search has ${last.toLocaleString()} ${last === 1 ? "page" : "pages"} of papers.</p>
+      <button type="button" class="btn" data-page="${last}">Go to the last page</button></li>`;
+    return;
+  }
   if (!res.results.length) {
     $("summary").innerHTML = "";
     $("pager").innerHTML = "";
@@ -269,8 +274,7 @@ function renderResults(res) {
   }
   const first = (res.page - 1) * res.per_page;
   $("summary").innerHTML = `<span>${res.total.toLocaleString()} ${res.total === 1 ? "paper" : "papers"}` +
-    `${res.page > 1 ? `, page ${res.page}` : ""}</span>
-    <button type="button" class="link small" id="how-btn">How this search worked</button>`;
+    `${last > 1 ? `, page ${res.page.toLocaleString()} of ${last.toLocaleString()}` : ""}</span>`;
   $("results").innerHTML = res.results.map((p, i) => `
     <li class="result" value="${first + i + 1}">
       <h2 class="result-title"><a href="${esc(paperLink(p) || "#")}" data-key="${esc(p.key)}">${esc(p.title)}</a></h2>
@@ -279,9 +283,20 @@ function renderResults(res) {
       ${p.missing && p.missing.length ? `<div class="missing">Does not mention ${p.missing.map((w) => `<s>${esc(w)}</s>`).join(", ")}</div>` : ""}
       ${factsHTML(p)}
     </li>`).join("");
-  const more = first + res.per_page < res.total;
-  $("pager").innerHTML = (res.page > 1 ? `<button type="button" class="pg" data-page="${res.page - 1}">Previous page</button>` : "") +
-    (more ? `<button type="button" class="pg" data-page="${res.page + 1}">Next page</button>` : "");
+  $("pager").innerHTML = pagerHTML(res.page, last);
+}
+
+// First, previous, next and last page. Buttons that would go nowhere stay in place, switched off.
+function pagerHTML(page, last) {
+  if (last <= 1) return "";
+  const button = (to, icon, text, label, off, after) => `<button type="button" class="pg${after ? " pg-after" : ""}" data-page="${to}"` +
+    ` aria-label="${label}" title="${label}"${off ? " disabled" : ""}><svg aria-hidden="true"><use href="#${icon}"/></svg>` +
+    `<span class="pg-text">${text}</span></button>`;
+  return `<div class="pg-group">${button(1, "i-first", "First", "First page", page <= 1)}` +
+    `${button(page - 1, "i-prev", "Previous", "Previous page", page <= 1)}</div>` +
+    `<span class="pg-at">Page <b>${page.toLocaleString()}</b> of ${last.toLocaleString()}</span>` +
+    `<div class="pg-group">${button(page + 1, "i-next", "Next", "Next page", page >= last, true)}` +
+    `${button(last, "i-last", "Last", `Last page (${last.toLocaleString()})`, page >= last, true)}</div>`;
 }
 
 // What the query understanding changed (engine/understand.py), with a way back to the words as typed.
@@ -312,7 +327,7 @@ $("more-btn").addEventListener("click", () => {
   if (open) $("author").focus();
 });
 $("reset-filters").addEventListener("click", resetFilters);
-for (const id of ["field", "sort", "strict", "mode", "online"]) $(id).addEventListener("change", () => search(1));
+for (const id of ["field", "sort", "strict"]) $(id).addEventListener("change", () => search(1));
 for (const id of ["year_from", "year_to", "author"]) {
   $(id).addEventListener("change", () => search(1));
   $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); search(1); } });
@@ -377,7 +392,6 @@ async function openPaper(key) {
   try {
     const p = await getJSON("/api/paper?key=" + encodeURIComponent(key));
     const shown = state.results.find((r) => r.key === key);
-    const feats = shown ? shown.features : null;
     const view = { ...p, field: shown ? shown.field : "", match: shown ? shown.match : null, match_level: shown ? shown.match_level : "" };
     const link = paperLink(p);
     $("paper-body").innerHTML = `
@@ -392,11 +406,9 @@ async function openPaper(key) {
       <div class="paper-facts">${factsHTML(view, view.match != null, false)}</div>
       <p class="paper-abstract">${p.abstract ? esc(p.abstract) : `<span class="muted">No abstract available.</span>`}</p>
       ${p.topic ? `<p class="block-sub">Topic: ${esc(p.topic.split(" | ").join(", "))}</p>` : ""}
-      ${relatedHTML(p)}
-      ${feats ? `<details class="ranking"><summary>Why it ranked here</summary>
-        <table class="feature-table">${Object.keys(FEATURE_NAMES).filter((k) => k in feats).map((k) =>
-          `<tr><td>${esc(FEATURE_NAMES[k])}</td><td>${feats[k] < 0 ? "unknown" : feats[k].toFixed(2)}</td></tr>`).join("")}</table></details>` : ""}`;
+      ${relatedHTML(p)}`;
     $("copy-cite").addEventListener("click", () => copyText(citation(p)));
+    document.dispatchEvent(new CustomEvent("paperscope:paper", { detail: { paper: p, shown } }));
   } catch (e) {
     $("paper-body").innerHTML = `<div class="state error"><h2>This paper could not be opened</h2><p>${esc(e.message)}</p></div>`;
   }
@@ -410,89 +422,6 @@ async function copyText(text) {
     try { document.execCommand("copy"); } finally { t.remove(); }
   }
   toast("Citation copied");
-}
-
-// ------------------------------------------------------------------ how this search worked
-function duration(s) { return s >= 5400 ? `${Math.round(s / 3600)} h` : s >= 90 ? `${Math.round(s / 60)} min` : `${Math.round(s)} s`; }
-
-function renderHow() {
-  const t = state.trace;
-  if (!t) { $("how-body").innerHTML = `<p class="muted">Search for something first.</p>`; return; }
-  const rows = [];
-  const u = t.understood;
-  if (u) {
-    const how = [u.kind === "question" ? "A question" : u.kind === "request" ? "A request" : "Keywords"];
-    if (u.semantic) how.push("also searched by meaning");
-    if (u.title) how.push("also searched titles");
-    rows.push(`<h3 class="how-h">Understood as</h3><div>${how.map(esc).join(", ")}.` +
-      (u.removed.length ? `<br>Left out: <code>${esc(u.removed.join(" "))}</code>` : "") +
-      (u.corrections.length ? `<br>Spelling: ${u.corrections.map((c) => `<code>${esc(c.from)}</code> to <code>${esc(c.to)}</code>`).join(", ")}` : "") +
-      (u.recent_from ? `<br>Recent: from ${u.recent_from}` : "") +
-      (u.relaxed ? `<br>Also searched with fewer words: <code>${esc(u.relaxed)}</code>, without ${u.relax_dropped.map((w) => `<code>${esc(w)}</code>`).join(", ")}` : "") + "</div>");
-  }
-  rows.push(`<h3 class="how-h">Words searched</h3><div><code>${esc((t.query?.words || []).join(" ") || "none")}</code>` +
-    (t.query?.excluded?.length ? `<br>Excluded: <code>${esc(t.query.excluded.join(" "))}</code>` : "") + "</div>");
-  if (t.identifier) {
-    rows.push(`<h3 class="how-h">Identifier</h3><div>${esc(t.identifier.kind)} <code>${esc(t.identifier.value)}</code>, ` +
-      `${t.identifier.in_memory ? "already in memory" : "looked up online"}</div>`);
-    const errs = t.identifier.online?.errors || [];
-    if (errs.length) rows.push(`<div class="err">${errs.map(esc).join("<br>")}</div>`);
-  }
-  if (t.boolean && t.boolean.error) {
-    rows.push(`<h3 class="how-h">AND / OR / NOT</h3><div class="err">${esc(t.boolean.error)}</div>`);
-  } else if (t.boolean) {
-    rows.push(`<h3 class="how-h">AND / OR / NOT, evaluated on a stack</h3><div>Postfix: <code>${esc(t.boolean.postfix.join(" "))}</code></div>` +
-      `<table>${t.boolean.steps.map((s) => `<tr><td><code>${esc(s.token)}</code></td><td><div class="stack">` +
-        `${s.stack.map((x) => `<span>${esc(x)}</span>`).join("")}</div></td></tr>`).join("")}</table>` +
-      `<div class="muted">${t.boolean.matches} papers in memory match</div>`);
-  }
-  if (t.online) {
-    const o = t.online;
-    rows.push(`<h3 class="how-h">Internet</h3><div>${o.used ? `Asked because ${esc(o.reason)}.` : `Not needed: ${esc(o.reason)}.`}</div>`);
-    if (o.used) {
-      rows.push(`<table>${o.providers.map((p) => `<tr><td>${esc(p.provider)}</td><td class="${p.ok ? "ok" : "err"}">` +
-        `${p.ok ? `${p.results} papers${p.cached ? ", from cache" : ""}` : esc(p.error || "failed")}</td><td class="num">${p.ms ?? ""} ms</td></tr>`).join("")}</table>` +
-        `<div class="muted">${o.fetched} fetched, ${o.new} new to memory, ${o.ms} ms` +
-        (o.providers.some((p) => /arXiv|Europe PMC/.test(p.provider)) ? `. The free source was picked for ${esc(o.field_source)}.` : ".") + `</div>` +
-        (o.saver ? `<div class="saver">Saver mode: ${esc(o.saver.reason)}. Free sources were asked first` +
-          (o.saver.skipped.length ? `, and the extra searches ${o.saver.skipped.map(esc).join(", ")} were skipped` : "") + ".</div>" : ""));
-    }
-  }
-  if (t.candidates) {
-    const c = t.candidates;
-    rows.push(`<h3 class="how-h">Candidates</h3><table>` +
-      `<tr><td>Inverted index (BM25)</td><td class="num">${c.lexical}</td><td class="num">${c.ms.lexical} ms</td></tr>` +
-      `<tr><td>Vector search</td><td class="num">${c.semantic}</td><td class="num">${c.ms.semantic} ms</td></tr>` +
-      `<tr><td>From the internet</td><td class="num">${c.from_online}</td><td></td></tr>` +
-      `<tr><td><b>Re-ranked</b></td><td class="num"><b>${c.total}</b></td><td></td></tr></table>` +
-      `<div class="muted">${c.in_memory.toLocaleString()} papers in memory, ${c.allowed_by_filters.toLocaleString()} pass the filters</div>`);
-  }
-  if (t.field) {
-    rows.push(`<h3 class="how-h">Research field</h3><div>${t.field.chosen ? `Chosen: <b>${esc(t.field.chosen)}</b><br>` : ""}` +
-      t.field.detected.map((d) => `${esc(d.name)} ${(d.p * 100).toFixed(0)}%`).join("<br>") + "</div>");
-  }
-  if (t.rerank) rows.push(`<h3 class="how-h">Ranking</h3><div>${esc(t.rerank.ranker)}, confident above ${t.rerank.threshold}` +
-    (t.fusion ? `<br>Combined with the order of ${esc(t.fusion.with)} (reciprocal rank fusion)` : "") +
-    (t.exact_title ? `<br>Exact title match moved to the top` : "") +
-    (t.sorted_on_topic != null ? `<br>${t.sort === "year" ? "Newest" : "Most cited"} first among the ${t.sorted_on_topic} papers that match best, then the rest by relevance` : "") +
-    `<br>Total ${t.total_ms} ms</div>`);
-  $("how-body").innerHTML = rows.join("");
-  renderSystem();
-}
-
-async function renderSystem() {
-  try {
-    const s = await getJSON("/api/state");
-    const b = s.budget || {};
-    const lines = [`${s.papers_in_memory.toLocaleString()} of ${s.capacity.toLocaleString()} papers in memory.`,
-      `Ranker: ${esc(s.ranker.kind)}${s.ranker.trees ? `, ${s.ranker.trees} trees` : ""}.`];
-    if (b.known) lines.push(`OpenAlex budget today: $${b.remaining_usd.toFixed(3)} of $${b.limit_usd.toFixed(2)} left` +
-      (b.resets_in_s != null ? `, full again in ${duration(b.resets_in_s)}` : "") + ".");
-    if (b.saver) lines.push(`<span class="saver">Saver mode is on: ${esc(b.saver_reason)}.</span>`);
-    lines.push(`Spent since the app started: $${(b.spent_usd || 0).toFixed(4)} in ${b.requests || 0} OpenAlex requests` +
-      (b.cache_file ? `, ${b.cache_file_hits} answers from the cache file` : "") + ".");
-    $("system").innerHTML = `<h3 class="how-h">This app</h3><p>${lines.join("<br>")}</p>`;
-  } catch (e) { $("system").innerHTML = ""; }
 }
 
 // ------------------------------------------------------------------ suggestions
@@ -567,7 +496,7 @@ $("examples").addEventListener("click", (e) => {
 $("home-link").addEventListener("click", (e) => {
   e.preventDefault();
   $("q").value = "";
-  state.results = []; state.trace = null;
+  state.results = []; state.last = null;
   document.title = "PaperScope";
   window.history.pushState(null, "", "/");
   showHome(true);
@@ -575,7 +504,6 @@ $("home-link").addEventListener("click", (e) => {
 });
 document.querySelector(".results-view").addEventListener("click", (e) => {
   if (e.target.id === "exact") { search(1, true); return; }
-  if (e.target.id === "how-btn") { openSheet("how-sheet"); renderHow(); return; }
   if (e.target.closest("[data-reset]")) { resetFilters(); return; }
   const pg = e.target.closest("button[data-page]");
   if (pg) { search(Number(pg.dataset.page)); window.scrollTo({ top: 0 }); return; }
@@ -597,6 +525,7 @@ function placeholder() { $("q").placeholder = narrow.matches ? "Search papers or
 narrow.addEventListener("change", placeholder);
 placeholder();
 paintThemeButton();
+window.paperscope = { $, esc, getJSON, state, search, openSheet };
 loadFields().then(() => {
   const { q, page } = fromURL();
   if (q) search(page, state.exact, false);

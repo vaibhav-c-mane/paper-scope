@@ -1,10 +1,29 @@
 """The web API, with a fake internet behind it."""
+import os
+import tempfile
 import unittest
 
+from werkzeug.security import generate_password_hash
+
+from admin import MAX_TRIES, LoginGuard
 from app import create_app
 from engine.pipeline import SearchPipeline
 from engine.ranker import HeuristicRanker
-from tests.fixtures import client_with, lexicon, ok, openalex_work
+from scripts.set_admin import admin_values, read_env, update_env
+from tests.fixtures import FakeClock, client_with, lexicon, ok, openalex_work
+
+ADMIN = {"path": "test-door-4821", "user": "owner", "secret_key": "test-key",
+         "password_hash": generate_password_hash("correct horse battery", method="pbkdf2:sha256:1000")}
+
+
+def page(web, url="/"):
+    with web.get(url) as r:                       # closes the file behind a static page
+        return r.get_data(as_text=True)
+
+
+def read(path):
+    with open(path, encoding="utf-8", newline="") as f:
+        return f.read()
 
 
 class AppTests(unittest.TestCase):
@@ -12,16 +31,35 @@ class AppTests(unittest.TestCase):
         works = [openalex_work(f"Protein folding structure paper {i}", doi=f"10.1/pf{i}") for i in range(6)]
         client, self.transport, _ = client_with({"api.openalex.org/works": ok({"results": works})}, order=("openalex",))
         pipe = SearchPipeline(client=client, lexicon=lexicon(), ranker=HeuristicRanker(), capacity=100)
-        self.web = create_app(pipe).test_client()
+        self.web = create_app(pipe, admin_settings=False).test_client()
 
     def test_search_then_open_a_paper(self):
         r = self.web.get("/api/search?q=protein+folding+structure").get_json()
         self.assertEqual(r["total"], 6)
-        self.assertTrue(r["trace"]["online"]["used"])
+        self.assertIn("protein", r["words"])
         key = r["results"][0]["key"]
         p = self.web.get("/api/paper", query_string={"key": key}).get_json()
         self.assertEqual(p["title"], r["results"][0]["title"])
         self.assertNotIn("_keys", p)
+
+    def test_visitors_get_no_engine_internals(self):
+        """The trace (sources, timings, budget) and the ranking numbers are only for the admin."""
+        r = self.web.get("/api/search?q=please+find+protein+folding+structure").get_json()
+        self.assertNotIn("trace", r)
+        for k in ("score", "relevance", "features"):
+            self.assertNotIn(k, r["results"][0])
+        self.assertEqual(set(r["understood"]), {"changed", "query", "original", "corrections", "recent_from"})
+        self.assertEqual(set(self.web.get("/api/state").get_json()), {"fields"})
+        html = page(self.web)
+        self.assertNotIn("How this search worked", html)
+        self.assertNotIn("admin", html.lower())
+
+    def test_visitors_cannot_change_the_test_settings(self):
+        """online=never would answer from an empty memory; for a visitor it is ignored, so the search
+        still goes online, and a value that is not allowed is not an error either."""
+        r = self.web.get("/api/search?q=protein+folding&online=never&mode=bm25").get_json()
+        self.assertEqual(r["total"], 6)
+        self.assertEqual(self.web.get("/api/search?q=x&online=sometimes").status_code, 200)
 
     def test_related_papers_follow_citation_links(self):
         """A chain of five papers, each citing the one before; the drawer lists the citation links
@@ -30,7 +68,7 @@ class AppTests(unittest.TestCase):
         num = [abs(hash(t)) % 10 ** 8 for t in titles]
         works = [openalex_work(t, refs=[num[i - 1]] if i else []) for i, t in enumerate(titles)]
         client, transport, _ = client_with({"api.openalex.org/works": ok({"results": works})}, order=("openalex",))
-        web = create_app(SearchPipeline(client=client, lexicon=lexicon(), ranker=HeuristicRanker())).test_client()
+        web = create_app(SearchPipeline(client=client, lexicon=lexicon(), ranker=HeuristicRanker()), admin_settings=False).test_client()
         web.get("/api/search?q=protein+folding+chain")
         self.assertIn("referenced_works", transport.urls("api.openalex.org")[0])
         p = web.get("/api/paper", query_string={"key": f"openalex:w{num[2]}"}).get_json()
@@ -46,24 +84,127 @@ class AppTests(unittest.TestCase):
         self.assertNotIn("_refs", p)
         self.assertIsInstance(p["citations"], int)                          # the count, not the link list
 
-    def test_state_and_suggest(self):
-        self.web.get("/api/search?q=protein+folding")
-        s = self.web.get("/api/state").get_json()
-        self.assertEqual(s["papers_in_memory"], 6)
-        self.assertEqual(s["ranker"]["kind"], "heuristic")
+    def test_suggest(self):
         self.assertIn("suggestions", self.web.get("/api/suggest?prefix=gra").get_json())
         title = self.web.get("/api/search?q=protein+folding").get_json()["results"][0]["title"]
         got = self.web.get("/api/suggest", query_string={"prefix": "x", "q": title[:12].upper()}).get_json()["titles"]
         self.assertIn(title, [t["title"] for t in got])
 
     def test_bad_input_is_rejected(self):
-        self.assertEqual(self.web.get("/api/search?q=x&online=sometimes").status_code, 400)
         self.assertEqual(self.web.get("/api/search?q=x&field=Astrology").status_code, 400)
         self.assertEqual(self.web.get("/api/search?q=x&sort=alphabetical").status_code, 400)
         r = self.web.get("/api/search?q=protein+AND+(folding").get_json()       # unreadable: words searched instead
-        self.assertIn("error", r["trace"]["boolean"])
         self.assertGreater(r["total"], 0)
         self.assertEqual(self.web.get("/api/paper?key=doi:10.9/missing").status_code, 404)
+
+
+class AdminTests(unittest.TestCase):
+    def setUp(self):
+        works = [openalex_work(f"Protein folding structure paper {i}", doi=f"10.1/pf{i}") for i in range(6)]
+        client, self.transport, _ = client_with({"api.openalex.org/works": ok({"results": works})}, order=("openalex",))
+        self.pipe = SearchPipeline(client=client, lexicon=lexicon(), ranker=HeuristicRanker(), capacity=100)
+        self.web = create_app(self.pipe, admin_settings=ADMIN).test_client()
+
+    def sign_in(self, password="correct horse battery", user="owner"):
+        return self.web.post("/test-door-4821/", data={"username": user, "password": password})
+
+    def test_switched_off_without_settings(self):
+        web = create_app(self.pipe, admin_settings=False).test_client()
+        self.assertEqual(web.get("/test-door-4821/").status_code, 404)
+        self.assertEqual(web.get("/admin").status_code, 404)
+
+    def test_login_page_is_only_at_the_secret_address(self):
+        self.assertEqual(self.web.get("/admin").status_code, 404)
+        self.assertEqual(self.web.get("/admin/").status_code, 404)
+        page = self.web.get("/test-door-4821/")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("noindex", page.headers["X-Robots-Tag"])
+        self.assertEqual(page.headers["Cache-Control"], "no-store")
+        self.assertEqual(self.web.get("/test-door-4821/admin.js").status_code, 404)    # not before signing in
+
+    def test_wrong_password_then_sign_in_and_out(self):
+        self.assertEqual(self.sign_in("wrong password!!").status_code, 401)
+        self.assertEqual(self.sign_in(user="someone").status_code, 401)
+        r = self.sign_in()
+        self.assertEqual((r.status_code, r.headers["Location"]), (302, "/"))
+        cookie = r.headers["Set-Cookie"]
+        self.assertIn("HttpOnly", cookie)
+        self.assertIn("SameSite=Strict", cookie)
+
+        self.assertIn("/test-door-4821/admin.js", page(self.web))
+        self.assertIn("How this search worked", page(self.web, "/test-door-4821/admin.js"))
+        r = self.web.get("/api/search?q=protein+folding+structure").get_json()
+        self.assertTrue(r["trace"]["online"]["used"])
+        self.assertIn("features", r["results"][0])
+        self.assertEqual(self.web.get("/api/state").get_json()["papers_in_memory"], 6)
+
+        self.web.post("/test-door-4821/logout")
+        self.assertNotIn("admin.js", page(self.web))
+        self.assertNotIn("trace", self.web.get("/api/search?q=protein+folding").get_json())
+
+    def test_admin_test_settings_are_checked(self):
+        self.sign_in()
+        self.assertEqual(self.web.get("/api/search?q=x&online=sometimes").status_code, 400)
+        self.assertEqual(self.web.get("/api/search?q=x&mode=magic").status_code, 400)
+        r = self.web.get("/api/search?q=protein+folding&online=never").get_json()
+        self.assertEqual(r["total"], 0)                                     # memory only, and memory is empty
+        r = self.web.get("/api/search?q=protein+AND+(folding").get_json()
+        self.assertIn("error", r["trace"]["boolean"])
+
+    def test_too_many_wrong_passwords_lock_the_address(self):
+        for _ in range(MAX_TRIES):
+            self.assertEqual(self.sign_in("wrong password!!").status_code, 401)
+        r = self.sign_in()                                                   # even the right one now waits
+        self.assertEqual(r.status_code, 429)
+        self.assertNotIn("Set-Cookie", r.headers)
+        self.assertNotIn("trace", self.web.get("/api/search?q=protein").get_json())
+
+    def test_lock_ends_and_a_right_password_clears_the_count(self):
+        clock = FakeClock()
+        g = LoginGuard(tries=3, lock_s=60, clock=clock)
+        for _ in range(3):
+            g.wrong("1.2.3.4")
+        self.assertAlmostEqual(g.wait_s("1.2.3.4"), 60)
+        self.assertEqual(g.wait_s("5.6.7.8"), 0)
+        clock.t += 61
+        self.assertEqual(g.wait_s("1.2.3.4"), 0)
+        g.wrong("1.2.3.4")
+        g.right("1.2.3.4")
+        g.wrong("1.2.3.4")
+        g.wrong("1.2.3.4")
+        self.assertEqual(g.wait_s("1.2.3.4"), 0)                             # two in a row, not three
+
+    def test_a_new_password_signs_everyone_out(self):
+        self.sign_in()
+        changed = dict(ADMIN, password_hash=generate_password_hash("another long password", method="pbkdf2:sha256:1000"))
+        fresh = create_app(self.pipe, admin_settings=changed).test_client()
+        fresh.set_cookie("session", self.web.get_cookie("session").value)          # same cookie key, old password
+        self.assertNotIn("admin.js", page(fresh))
+
+
+class SetAdminTests(unittest.TestCase):
+    def test_env_lines_are_added_and_replaced_and_the_rest_kept(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, ".env")
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                f.write("# my keys\r\nOPENALEX_API_KEY=abc\r\nPAPERSCOPE_ADMIN_USER=old\r\n")
+            first = admin_values("owner", "a long enough password", read_env(path))
+            update_env(path, first)
+            text = read(path)
+            self.assertTrue(text.startswith("# my keys\r\nOPENALEX_API_KEY=abc\r\nPAPERSCOPE_ADMIN_USER=owner\r\n"))
+            env = read_env(path)
+            self.assertNotIn("a long enough password", text)
+            self.assertTrue(env["PAPERSCOPE_ADMIN_PASSWORD_HASH"].startswith("scrypt:"))
+            self.assertGreaterEqual(len(env["PAPERSCOPE_ADMIN_PATH"]), 12)
+
+            update_env(path, admin_values("owner", "a different password", env))    # address and key kept
+            again = read_env(path)
+            self.assertEqual(again["PAPERSCOPE_ADMIN_PATH"], env["PAPERSCOPE_ADMIN_PATH"])
+            self.assertEqual(again["PAPERSCOPE_SECRET_KEY"], env["PAPERSCOPE_SECRET_KEY"])
+            self.assertNotEqual(again["PAPERSCOPE_ADMIN_PASSWORD_HASH"], env["PAPERSCOPE_ADMIN_PASSWORD_HASH"])
+            self.assertEqual(read(path).count("PAPERSCOPE_ADMIN_PATH="), 1)
+            moved = admin_values("owner", "a different password", again, new_address=True)
+            self.assertNotEqual(moved["PAPERSCOPE_ADMIN_PATH"], again["PAPERSCOPE_ADMIN_PATH"])
 
 
 if __name__ == "__main__":

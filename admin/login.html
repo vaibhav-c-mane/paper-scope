@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Sign in - PaperScope</title>
+<script src="/static/theme.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap">
+<link rel="stylesheet" href="/static/style.css">
+<style>
+  .signin { max-width: 380px; margin: 12vh auto 0; padding: 0 16px; }
+  .signin .wordmark { margin-bottom: 28px; }
+  .signin-card { padding: 26px 24px 24px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); box-shadow: var(--lift); }
+  .signin h1 { font: 500 26px/1.2 var(--serif); margin-bottom: 6px; }
+  .signin p { margin: 0 0 18px; color: var(--ink-2); font-size: 15px; }
+  .signin label { display: grid; gap: 6px; margin-bottom: 14px; font-size: 14px; font-weight: 500; color: var(--ink-2); }
+  .signin input { width: 100%; height: 44px; font-size: 16px; color: var(--ink); }
+  .signin .btn { width: 100%; justify-content: center; margin-top: 6px; }
+  .signin .btn + form { margin-top: 10px; }
+  .signin-error { padding: 10px 12px; border-radius: 8px; background: var(--bad-soft); color: var(--bad) !important; font-weight: 500; }
+</style>
+</head>
+<body>
+<main class="signin">
+  <a class="wordmark" href="/">
+    <svg class="mark" viewBox="0 0 32 32" aria-hidden="true"><rect x="4" y="13" width="24" height="9" rx="2" class="mark-hl"/><circle cx="14" cy="14" r="8" class="mark-ring"/><path d="M20 20l7 7" class="mark-ring"/></svg>
+    <span>PaperScope</span>
+  </a>
+  <div class="signin-card">
+  {% if signed_in %}
+    <h1>You are signed in</h1>
+    <p>The search page shows the admin tools while you are signed in.</p>
+    <a class="btn btn-primary" href="/">Go to the search page</a>
+    <form action="{{ base }}logout" method="post"><button class="btn">Sign out</button></form>
+  {% else %}
+    <h1>Admin sign in</h1>
+    <p>For the owner of this site only.</p>
+    {% if error %}<p class="signin-error" role="alert">{{ error }}</p>{% endif %}
+    <form method="post">
+      <label>Username <input name="username" autocomplete="username" autocapitalize="off" spellcheck="false" required autofocus></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="btn btn-primary">Sign in</button>
+    </form>
+  {% endif %}
+  </div>
+</main>
+</body>
+</html>
