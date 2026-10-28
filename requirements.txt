@@ -1,5 +1,6 @@
 # Python 3.9 or newer
 flask>=3.0          # web app and JSON API
+waitress>=3.0       # production web server for a public site (wsgi.py); Linux and Windows
 numpy>=1.24         # in-memory index, vectors, scoring, the packed ranker trees
 scipy>=1.10         # sparse TF-IDF matrices
 scikit-learn>=1.3   # training only: TruncatedSVD (embeddings), field classifier, regression trees for LambdaMART

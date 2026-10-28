@@ -4,6 +4,7 @@ with an in-memory hybrid index (BM25 + embeddings) and a learned ranker.
 Run:  python app.py            then open http://127.0.0.1:5000
       PORT=8000 python app.py
       OPENALEX_EMAIL=you@uni.edu python app.py     (OpenAlex's faster "polite pool")
+On a public website use python wsgi.py instead (a production server, see wsgi.py).
 
 Papers fetched from the internet are kept in memory (at most PAPERSCOPE_CAPACITY,
 default 20000, least recently used evicted first) and forgotten when the app stops.
@@ -14,9 +15,11 @@ Visitors get the papers and what the search understood. The engine's trace, the 
 numbers, the test settings and the OpenAlex budget are only for the admin (admin/,
 switched on with python scripts/set_admin.py).
 """
+import logging
 import os
 
 from flask import Flask, jsonify, request, send_from_directory
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 from admin import AdminLogin, settings_from_env
 from engine.domains import DOMAINS
@@ -26,6 +29,11 @@ from engine.sources import ScholarlyClient
 SORTS = ("relevance", "year", "citations")
 UNDERSTOOD_SHOWN = ("changed", "query", "original", "corrections", "recent_from")    # the notice above the results
 RANKING_NUMBERS = ("score", "relevance", "features")
+# The page's own scripts only (an injected <script> cannot run), styles and fonts from Google Fonts,
+# API calls to this site only, and no other site may show the page in a frame.
+CONTENT_POLICY = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+                  "font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; "
+                  "base-uri 'none'; form-action 'self'; frame-ancestors 'none'")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -58,6 +66,16 @@ def create_app(pipeline=None, admin_settings=None):
     app = Flask(__name__, static_folder=os.path.join(HERE, "static"))
     app.config["pipeline"] = pipeline
     admin = app.config["admin"] = AdminLogin(app, settings_from_env() if admin_settings is None else admin_settings)
+
+    @app.after_request
+    def safety_headers(response):
+        h = response.headers
+        h.setdefault("Content-Security-Policy", CONTENT_POLICY)
+        h.setdefault("X-Content-Type-Options", "nosniff")
+        h.setdefault("Referrer-Policy", "same-origin")          # other sites never see what was searched
+        if app.config.get("HTTPS_ONLY"):
+            h.setdefault("Strict-Transport-Security", "max-age=31536000")
+        return response
 
     @app.get("/")
     def index():
@@ -105,12 +123,35 @@ def create_app(pipeline=None, admin_settings=None):
     return app
 
 
+def for_deployment(app, proxies=1, https=True):
+    """Settings for a public website (wsgi.py).
+
+    proxies: how many proxies (the host's, nginx) pass each request on. Each adds the address it
+    got the request from to X-Forwarded-For, so the visitor's real address is that many places
+    from the end; earlier entries can be made up by the visitor and are ignored. The admin
+    login's wrong-password limit counts by this address. 0 when visitors reach the app directly.
+    https: the sign-in cookie is only ever sent over HTTPS, and browsers are told to always use
+    HTTPS for this site."""
+    if proxies:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=proxies, x_proto=proxies)
+    if https:
+        # "__Host-" makes the browser refuse the cookie unless it is HTTPS-only and for this site alone
+        app.config.update(SESSION_COOKIE_SECURE=True, SESSION_COOKIE_NAME="__Host-session", HTTPS_ONLY=True)
+    return app
+
+
+def describe(app):
+    """One line for the terminal when the app starts."""
+    s = app.config["pipeline"].state()
+    return (f"PaperScope: ranker {s['ranker']['kind']}, lexicon of {s['lexicon'].get('vocabulary', 0):,} words, "
+            f"memory for {s['capacity']:,} papers. Searches go to OpenAlex, then arXiv or Europe PMC by field, "
+            f"Semantic Scholar and Crossref" + (" (cache file on)" if s["budget"].get("cache_file") else "") + ". " +
+            ("Admin login is on." if app.config["admin"].enabled
+             else "Admin login is off (python scripts/set_admin.py turns it on)."))
+
+
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     application = create_app()
-    s = application.config["pipeline"].state()
-    print(f"PaperScope: ranker {s['ranker']['kind']}, lexicon of {s['lexicon'].get('vocabulary', 0):,} words, "
-          f"memory for {s['capacity']:,} papers. Searches go to OpenAlex, then arXiv or Europe PMC by field, "
-          f"Semantic Scholar and Crossref" + (" (cache file on)" if s["budget"].get("cache_file") else "") + ". " +
-          ("Admin login is on." if application.config["admin"].enabled
-           else "Admin login is off (python scripts/set_admin.py turns it on)."))
+    print(describe(application))
     application.run(host="127.0.0.1", port=int(os.environ.get("PORT", "5000")), debug=False, threaded=True)

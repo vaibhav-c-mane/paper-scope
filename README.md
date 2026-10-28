@@ -122,6 +122,12 @@ The server sends the trace, the ranking numbers, the budget and the memory
 figures only to the signed-in admin, and ignores the test settings from anyone
 else, so a visitor cannot make every search go online.
 
+The app's log (the terminal, or your host's Logs page) shows every admin
+sign-in and wrong password with the address it came from, never what was typed:
+`admin sign-in failed: wrong username or password from 203.0.113.7`. Lines you
+did not cause mean someone found the address: move it with `--new-address` and
+choose a new password (see "Deploying" for a live site).
+
 ![Start page](docs/home.png)
 
 ![Results](docs/search.png)
@@ -153,6 +159,59 @@ newest or most cited.
 
 JSON API: `GET /api/search?q=...&exact=1&year_from=&year_to=&author=&field=&strict=1&sort=&page=&online=auto|always|never&mode=learned|hybrid|bm25|semantic`,
 `GET /api/paper?key=doi:...`, `GET /api/suggest?prefix=...`, `GET /api/state`.
+`online` and `mode` count only for the signed-in admin, and only the admin gets
+the search's `trace` and the full `/api/state`.
+
+## Deploying (a public website)
+
+`python app.py` is for your own computer: Flask's development server, which
+only your computer can reach. A public site runs `wsgi.py` instead: the same
+app on waitress, a production web server for Linux and Windows.
+
+```bash
+python wsgi.py                          # port $PORT (default 8000)
+PAPERSCOPE_HTTPS=off python wsgi.py     # to try it on your own computer: http://127.0.0.1:8000
+```
+
+On a host (Render, Railway, Heroku, PythonAnywhere, your own server...):
+
+1. Upload the project with git. `.env` stays on your computer (it is in
+   `.gitignore`), so put its values in the host's environment variables:
+   `OPENALEX_API_KEY`, `OPENALEX_EMAIL`, `S2_API_KEY`, and for the admin login
+   the four lines `python scripts/set_admin.py` wrote: `PAPERSCOPE_ADMIN_USER`,
+   `PAPERSCOPE_ADMIN_PASSWORD_HASH`, `PAPERSCOPE_ADMIN_PATH`, `PAPERSCOPE_SECRET_KEY`.
+2. Build command `pip install -r requirements.txt`, start command
+   `python wsgi.py` (the `Procfile` says so for hosts that read one). A host
+   that loads a WSGI app itself takes `wsgi:application`.
+3. Use HTTPS (common hosts give it for free). The admin sign-in cookie is
+   only sent over HTTPS, and browsers are told to always use HTTPS.
+4. Your login page is `https://your-domain/` + the `PAPERSCOPE_ADMIN_PATH` value + `/`.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `PAPERSCOPE_PROXIES` | 1 | How many proxies pass each request on: 1 for the host's own, 2 if Cloudflare is also in front, 0 if visitors reach the app directly. The app reads each visitor's real address with it, and the admin login's wrong-password limit counts by that address. Too low and every visitor looks like the proxy (one person's wrong passwords lock you out too); too high and a visitor can fake an address. |
+| `PAPERSCOPE_HTTPS` | on | `off` only to try `wsgi.py` over plain http on your own computer. |
+| `PAPERSCOPE_THREADS` | 8 | Requests served at the same time. |
+
+Run one copy of the app per site (one process, never several gunicorn
+workers): the papers in memory, the OpenAlex budget and the wrong-password
+counts live in that process.
+
+Every response also carries a content security policy (only the site's own
+scripts run, nothing can show the page in a frame), `nosniff`, and a referrer
+policy that keeps what was searched from other sites.
+
+**Changing the admin password, or moving the login page, on the live site.**
+The site does not need to go down:
+
+* *Host with an environment variables page:* on your computer run
+  `python scripts/set_admin.py` (add `--new-address` to move the page), then
+  copy the values that changed from your `.env` into the host's settings
+  (`PAPERSCOPE_ADMIN_PASSWORD_HASH`, and `PAPERSCOPE_ADMIN_PATH` if you moved
+  it) and save. The host restarts the app with them; most start the new copy
+  before stopping the old one, so visitors notice nothing.
+* *Your own server:* run `python scripts/set_admin.py` there and restart
+  the app. That takes a few seconds, far too short to affect search rankings.
 
 ## How a search runs
 
@@ -407,7 +466,10 @@ understanding (spelling, request words, recency, fusion), the pipeline end to en
 ## Project layout
 
 ```
-app.py                 web app (Flask) and JSON API
+app.py                 web app (Flask) and JSON API; python app.py on your own computer
+wsgi.py                the same app on a production server (waitress) for a public site
+Procfile               start command for hosts that read one: python wsgi.py
+admin/                 the hidden admin login, admin.js and admin.css (signed-in admin only)
 engine/
   pipeline.py          the search: understand, parse, memory, online, rank
   understand.py        query understanding: spelling, request words, recency
@@ -444,7 +506,8 @@ scripts/
   fetch_openalex.py    training papers from the OpenAlex snapshot
   ds_examples.py       the worked data structure examples in docs/PROJECT.md
   check_queries.py     26 everyday queries against live OpenAlex (search quality)
-static/                the web page (index.html, style.css, app.js)
+  set_admin.py         sets the admin username, password hash and secret address in .env
+static/                the web page (index.html, style.css, theme.js, app.js)
 data/models/           the trained models (the only files the app reads)
 tests/                 unit tests
 ```

@@ -13,6 +13,7 @@ API sends the trace and the ranking numbers that visitors never get.
 """
 import hashlib
 import hmac
+import logging
 import math
 import os
 import re
@@ -31,6 +32,9 @@ MAX_TRIES = 5                   # wrong passwords in a row from one address befo
 LOCK_S = 15 * 60                # how long it waits
 SESSION_HOURS = 12              # a sign-in lasts this long
 PATH_RE = re.compile(r"[A-Za-z0-9_-]{8,64}")
+# Sign-ins and wrong passwords, with the address they came from (never the name or password typed),
+# so the owner can see in the app's log if someone found the login page.
+log = logging.getLogger("paperscope.admin")
 
 
 def settings_from_env():
@@ -115,6 +119,8 @@ class AdminLogin:
         addr = request.remote_addr or "unknown"
         wait = self.guard.wait_s(addr)
         if wait:
+            log.warning("admin sign-in refused: %s is waiting %d more min after %d wrong passwords",
+                        addr, math.ceil(wait / 60), self.guard.tries)
             return self.page(f"Too many wrong tries. Try again in {math.ceil(wait / 60)} min."), 429
         try:        # checked even when the username is wrong, so a wrong name takes as long
             good = check_password_hash(self.settings["password_hash"], request.form.get("password", ""))
@@ -125,8 +131,10 @@ class AdminLogin:
             session.clear()
             session.permanent = True
             session["admin"] = self.mark
+            log.warning("admin signed in from %s", addr)
             return redirect("/")
         self.guard.wrong(addr)
+        log.warning("admin sign-in failed: wrong username or password from %s", addr)
         return self.page("Wrong username or password."), 401
 
     def logout(self):

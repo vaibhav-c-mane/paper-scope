@@ -1,4 +1,5 @@
 """The web API, with a fake internet behind it."""
+import logging
 import os
 import tempfile
 import unittest
@@ -6,7 +7,7 @@ import unittest
 from werkzeug.security import generate_password_hash
 
 from admin import MAX_TRIES, LoginGuard
-from app import create_app
+from app import create_app, for_deployment
 from engine.pipeline import SearchPipeline
 from engine.ranker import HeuristicRanker
 from scripts.set_admin import admin_values, read_env, update_env
@@ -14,6 +15,7 @@ from tests.fixtures import FakeClock, client_with, lexicon, ok, openalex_work
 
 ADMIN = {"path": "test-door-4821", "user": "owner", "secret_key": "test-key",
          "password_hash": generate_password_hash("correct horse battery", method="pbkdf2:sha256:1000")}
+logging.getLogger("paperscope.admin").addHandler(logging.NullHandler())     # sign-in lines stay out of test output
 
 
 def page(web, url="/"):
@@ -60,6 +62,14 @@ class AppTests(unittest.TestCase):
         r = self.web.get("/api/search?q=protein+folding&online=never&mode=bm25").get_json()
         self.assertEqual(r["total"], 6)
         self.assertEqual(self.web.get("/api/search?q=x&online=sometimes").status_code, 200)
+
+    def test_safety_headers(self):
+        with self.web.get("/") as r:
+            self.assertIn("script-src 'self'", r.headers["Content-Security-Policy"])
+            self.assertIn("frame-ancestors 'none'", r.headers["Content-Security-Policy"])
+            self.assertEqual(r.headers["X-Content-Type-Options"], "nosniff")
+            self.assertNotIn("Strict-Transport-Security", r.headers)               # not over http on your computer
+        self.assertIn("Content-Security-Policy", self.web.get("/api/state").headers)
 
     def test_related_papers_follow_citation_links(self):
         """A chain of five papers, each citing the one before; the drawer lists the citation links
@@ -123,9 +133,14 @@ class AdminTests(unittest.TestCase):
         self.assertEqual(self.web.get("/test-door-4821/admin.js").status_code, 404)    # not before signing in
 
     def test_wrong_password_then_sign_in_and_out(self):
-        self.assertEqual(self.sign_in("wrong password!!").status_code, 401)
-        self.assertEqual(self.sign_in(user="someone").status_code, 401)
-        r = self.sign_in()
+        with self.assertLogs("paperscope.admin") as logs:
+            self.assertEqual(self.sign_in("wrong password!!").status_code, 401)
+            self.assertEqual(self.sign_in(user="someone").status_code, 401)
+            r = self.sign_in()
+        self.assertEqual(len(logs.output), 3)
+        self.assertIn("admin signed in from 127.0.0.1", logs.output[2])
+        self.assertNotIn("wrong password!!", " ".join(logs.output))          # what was typed is never logged
+        self.assertNotIn("someone", " ".join(logs.output))
         self.assertEqual((r.status_code, r.headers["Location"]), (302, "/"))
         cookie = r.headers["Set-Cookie"]
         self.assertIn("HttpOnly", cookie)
@@ -154,8 +169,10 @@ class AdminTests(unittest.TestCase):
     def test_too_many_wrong_passwords_lock_the_address(self):
         for _ in range(MAX_TRIES):
             self.assertEqual(self.sign_in("wrong password!!").status_code, 401)
-        r = self.sign_in()                                                   # even the right one now waits
+        with self.assertLogs("paperscope.admin") as logs:
+            r = self.sign_in()                                               # even the right one now waits
         self.assertEqual(r.status_code, 429)
+        self.assertIn("refused", logs.output[0])
         self.assertNotIn("Set-Cookie", r.headers)
         self.assertNotIn("trace", self.web.get("/api/search?q=protein").get_json())
 
@@ -180,6 +197,45 @@ class AdminTests(unittest.TestCase):
         fresh = create_app(self.pipe, admin_settings=changed).test_client()
         fresh.set_cookie("session", self.web.get_cookie("session").value)          # same cookie key, old password
         self.assertNotIn("admin.js", page(fresh))
+
+
+class DeploymentTests(unittest.TestCase):
+    """wsgi.py's settings for a public site (app.for_deployment): one proxy in front, HTTPS."""
+    def setUp(self):
+        works = [openalex_work(f"Protein folding structure paper {i}", doi=f"10.1/pf{i}") for i in range(6)]
+        client, _, _ = client_with({"api.openalex.org/works": ok({"results": works})}, order=("openalex",))
+        pipe = SearchPipeline(client=client, lexicon=lexicon(), ranker=HeuristicRanker(), capacity=100)
+        self.web = for_deployment(create_app(pipe, admin_settings=ADMIN), proxies=1, https=True).test_client()
+
+    def via(self, forwarded):
+        """Headers as the host's proxy sends them: it adds the address it got the request from."""
+        return {"X-Forwarded-For": forwarded, "X-Forwarded-Proto": "https"}
+
+    def sign_in(self, forwarded, password="correct horse battery"):
+        return self.web.post("/test-door-4821/", data={"username": "owner", "password": password}, headers=self.via(forwarded))
+
+    def test_wrong_passwords_count_per_visitor_behind_the_proxy(self):
+        """Every request comes from the proxy; the lock is still per visitor, and a visitor cannot
+        get round it by putting made-up addresses in front of the one the proxy adds."""
+        with self.assertLogs("paperscope.admin") as logs:
+            for i in range(MAX_TRIES):
+                self.assertEqual(self.sign_in(f"10.0.0.{i}, 203.0.113.7", "wrong password!!").status_code, 401)
+            self.assertEqual(self.sign_in("10.9.9.9, 203.0.113.7").status_code, 429)
+            self.assertEqual(self.sign_in("198.51.100.4").status_code, 302)          # someone else is not locked out
+        self.assertIn("from 203.0.113.7", logs.output[0])
+        self.assertIn("admin signed in from 198.51.100.4", logs.output[-1])
+
+    def test_sign_in_cookie_only_travels_over_https(self):
+        with self.assertLogs("paperscope.admin"):
+            r = self.sign_in("198.51.100.4")
+        cookie = r.headers["Set-Cookie"]
+        self.assertTrue(cookie.startswith("__Host-session="))
+        self.assertIn("Secure", cookie)
+        self.assertIn("HttpOnly", cookie)
+        self.assertEqual(self.web.get("/api/state", headers=self.via("198.51.100.4")).get_json()["papers_in_memory"], 0)
+        with self.web.get("/", headers=self.via("198.51.100.4")) as home:
+            self.assertIn("max-age=", home.headers["Strict-Transport-Security"])
+            self.assertIn("/test-door-4821/admin.js", home.get_data(as_text=True))
 
 
 class SetAdminTests(unittest.TestCase):
