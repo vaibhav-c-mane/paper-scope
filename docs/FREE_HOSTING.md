@@ -137,8 +137,10 @@ address somewhere private.
    ```
 
    It answers `OK`.
-3. Back in Search Console, click **Verify**, then use **URL inspection** on your home page and
-   click **Request indexing**.
+3. Back in Search Console, click **Verify**.
+4. Open **Sitemaps**, type `sitemap.xml` and click **Submit**. The setup script saved your address
+   as `PAPERSCOPE_SITE`, so the sitemap already names it.
+5. Use **URL inspection** on your home page and click **Request indexing**.
 
 ## Keeping it running
 

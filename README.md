@@ -190,12 +190,24 @@ On a host (Render, Railway, Heroku, PythonAnywhere, your own server...):
 3. Use HTTPS (common hosts give it for free). The admin sign-in cookie is
    only sent over HTTPS, and browsers are told to always use HTTPS.
 4. Your login page is `https://your-domain/` + the `PAPERSCOPE_ADMIN_PATH` value + `/`.
+5. Check the address the app sees: sign in once with a wrong password and read the
+   line `admin sign-in failed … from X` in the host's log. X must be your own IP
+   address; if it is not, set `PAPERSCOPE_PROXIES` (below) and try again.
+
+**On Render's free plan** (no card): **New → Web Service**, pick the repository,
+Language Python 3, the build and start commands above, Instance Type **Free**, and
+besides the values above `PYTHON_VERSION` = `3.12.10` and `PAPERSCOPE_CAPACITY` =
+`10000`, which keeps memory inside the free 512 MB. The site is at
+`https://<name>.onrender.com`. A free service sleeps after 15 minutes without
+visitors and takes about a minute to wake; every `git push` deploys again.
 
 | Setting | Default | What it does |
 |---|---|---|
 | `PAPERSCOPE_PROXIES` | 1 | How many proxies pass each request on: 1 for the host's own, 2 if Cloudflare is also in front, 0 if visitors reach the app directly. The app reads each visitor's real address with it, and the admin login's wrong-password limit counts by that address. Too low and every visitor looks like the proxy (one person's wrong passwords lock you out too); too high and a visitor can fake an address. |
 | `PAPERSCOPE_HTTPS` | on | `off` only to try `wsgi.py` over plain http on your own computer. |
 | `PAPERSCOPE_THREADS` | 8 | Requests served at the same time. |
+| `PAPERSCOPE_SITE` | (none) | The site's public address, e.g. `paperscope.onrender.com` or your own domain. The sitemap lists it and the start page names it as its canonical address, so Google treats the `onrender.com` address and your domain as one site. |
+| `PAPERSCOPE_GOOGLE_VERIFICATION` | (none) | The code from Google Search Console's "HTML tag" check (the `content="…"` part only); the start page then carries the tag Google looks for. |
 | `PAPERSCOPE_SEARCHES_PER_MINUTE` | 30 | Searches and opened papers per visitor address (0 = no limit). Raise it if many people share one address, as in a school or office network. |
 
 Run one copy of the app per site (one process, never several gunicorn
@@ -221,8 +233,24 @@ What protects the live site:
   policy that keeps what was searched from other sites, and `no-store` on every
   API answer.
 * **Search engines.** `robots.txt` keeps crawlers off the API (their searches
-  would cost budget) and pages of results carry `noindex`; the start page is
-  indexed. The admin login's address is never named.
+  would cost budget) and points them to `/sitemap.xml`, which lists the start
+  page; pages of results carry `noindex`. The admin login's address is never
+  named. To tell Google about the site: in Search Console add the address as a
+  "URL prefix" property, pick the "HTML tag" check, put its code in
+  `PAPERSCOPE_GOOGLE_VERIFICATION`, redeploy and click Verify; then submit
+  `sitemap.xml` under Sitemaps.
+* **What search engines read.** The start page has a title and description
+  written for search results (59 and 159 characters, inside what Google shows),
+  keywords, link-preview tags with a picture (`static/og-image.png`), and
+  structured data (JSON-LD) saying it is a free search tool, so Google can show
+  the site's name. Its "common questions" section answers what people search
+  for (free papers, peer review, the latest research, citing, DOIs) in plain
+  text that is indexed. A mistyped address gets a page with a way back (404).
+* **Loading on phones.** The pages' own files are about 60 KB before
+  compression (the host compresses them). Each file's address carries a hash of
+  its content, so a browser keeps it for a year and a repeat visit loads only
+  the page itself (about 13 KB); a new deploy changes the hash. The fonts load
+  without holding up the first paint.
 
 **Changing the admin password, or moving the login page, on the live site.**
 The site does not need to go down:
@@ -479,13 +507,14 @@ and the index is compacted, so search time stays flat as the session goes on.
 python -m unittest -v
 ```
 
-136 tests, no internet needed (a fake HTTP transport stands in for the APIs):
+141 tests, no internet needed (a fake HTTP transport stands in for the APIs):
 the data structures (heap, hash table, queue, BFS, year tree, priority queue,
 Dijkstra, radix trie and the log store included), the in-memory index (BM25 against its formula, eviction,
 compaction), the online sources (cascade, cache, cache file, cool-down, deadline, budget and
 saver mode, arXiv and Europe PMC answers), query
 understanding (spelling, request words, recency, fusion), the pipeline end to end, LambdaMART, and the web API
-(the admin login and its lock, what visitors may see, searches per visitor, size limits, headers, crawlers).
+(the admin login and its lock, what visitors may see, searches per visitor, size limits, headers, crawlers,
+the sitemap).
 
 ## Project layout
 
@@ -532,7 +561,7 @@ scripts/
   ds_examples.py       the worked data structure examples in docs/PROJECT.md
   check_queries.py     26 everyday queries against live OpenAlex (search quality)
   set_admin.py         sets the admin username, password hash and secret address in .env
-static/                the web page (index.html, style.css, theme.js, app.js)
+static/                the web page (index.html, style.css, theme.js, app.js, og-image.png)
 data/models/           the trained models (the only files the app reads)
 tests/                 unit tests
 ```

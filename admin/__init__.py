@@ -72,6 +72,18 @@ class LoginGuard:
         with self.lock:
             self.failed.pop(addr)
 
+    def attempt(self, addr):
+        """A sign-in try, counted before its password is checked and in one step with the look at
+        the lock, so tries sent all at once cannot slip past it. 0 when this try may go ahead,
+        else the seconds to wait. A right password then clears the count (right)."""
+        with self.lock:
+            n, last = self.failed.get(addr, (0, 0.0))
+            now = self.clock()
+            if n >= self.tries and last + self.lock_s > now:
+                return last + self.lock_s - now
+            self.failed.put(addr, (n + 1 if n < self.tries else 1, now))
+            return 0.0
+
 
 class AdminLogin:
     def __init__(self, app, settings):
@@ -101,10 +113,9 @@ class AdminLogin:
     def signed_in(self):
         return self.enabled and session.get("admin") == self.mark
 
-    def search_page(self, index_path):
-        """The search page with the admin tools added. Never cached, so signing out removes them."""
-        with open(index_path, encoding="utf-8") as f:
-            html = f.read()
+    def search_page(self, html):
+        """The search page (index.html as app.py serves it) with the admin tools added. Never
+        cached, so signing out removes them."""
         html = html.replace("</head>", f'<link rel="stylesheet" href="{self.base}admin.css">\n</head>')
         html = html.replace("</body>", f'<script src="{self.base}admin.js"></script>\n</body>')
         r = Response(html, mimetype="text/html")
@@ -119,7 +130,7 @@ class AdminLogin:
         if request.method == "GET":
             return self.page()
         addr = request.remote_addr or "unknown"
-        wait = self.guard.wait_s(addr)
+        wait = self.guard.attempt(addr)
         if wait:
             log.warning("admin sign-in refused: %s is waiting %d more min after %d wrong passwords",
                         addr, math.ceil(wait / 60), self.guard.tries)
@@ -136,8 +147,7 @@ class AdminLogin:
             session["admin"] = self.mark
             log.warning("admin signed in from %s", addr)
             return redirect("/")
-        self.guard.wrong(addr)
-        log.warning("admin sign-in failed: wrong username or password from %s", addr)
+        log.warning("admin sign-in failed: wrong username or password from %s", addr)    # counted by attempt
         return self.page("Wrong username or password."), 401
 
     def logout(self):

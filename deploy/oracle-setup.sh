@@ -34,6 +34,9 @@ PYEOF
 }
 get_env() { grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -n 1 | cut -d= -f2- || true; }
 
+# Everything below is one block, which bash reads whole before running it: the "git pull" further
+# down can replace this very file, and bash must not read on into the new version half way.
+{
 if [ "$(id -u)" -eq 0 ]; then
     echo "Run this as your normal user (ubuntu), without sudo. It asks for sudo itself when needed." >&2
     exit 1
@@ -179,3 +182,5 @@ echo "  Site:         https://$SITE"
 echo "  Admin login:  https://$SITE/$(get_env PAPERSCOPE_ADMIN_PATH)/   (keep this to yourself)"
 echo "  Its log:      sudo journalctl -u $SERVICE -f"
 echo "  Update later: bash $APP_DIR/deploy/oracle-setup.sh"
+exit 0
+}

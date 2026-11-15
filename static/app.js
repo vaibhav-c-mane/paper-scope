@@ -4,6 +4,7 @@
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const FILTERS = ["year_from", "year_to", "field", "sort", "author"];
+const HOME_TITLE = document.title;                            // index.html's title, for search engines
 // last: the latest search answer; extra: more API parameters (the admin's test settings)
 const state = { page: 1, exact: false, last: null, results: [], extra: {}, fieldsLoaded: false, lastFocus: null };
 
@@ -51,12 +52,16 @@ function showHome(home) {
   $("results-view").classList.toggle("hidden", home);
   if (home) $("home-slot").appendChild($("search"));
   else document.querySelector(".bar").insertBefore($("search"), document.querySelector(".bar-actions"));
-  if (home) renderHomeHistory();
+  if (home) { renderHomeHistory(); document.title = HOME_TITLE; }
 }
 
 // ------------------------------------------------------------------ search history (this tab only)
 const HISTORY_KEY = "paperscope.history";
-function pastSearches() { return store.get("sessionStorage", HISTORY_KEY, []); }
+function pastSearches() {
+  // an entry from an older version, or changed by hand, is left out instead of breaking the page
+  const list = store.get("sessionStorage", HISTORY_KEY, []);
+  return Array.isArray(list) ? list.filter((h) => h && typeof h.q === "string" && h.f && typeof h.f === "object") : [];
+}
 function filtersNow() {
   const f = {};
   for (const id of FILTERS) if ($(id).value && !(id === "sort" && $(id).value === "relevance")) f[id] = $(id).value;
@@ -88,7 +93,7 @@ function historyHTML(limit) {
   if (!list.length) return `<p class="history-empty">Your searches in this tab will show here.</p>`;
   return `<ul class="history-list">${list.map((h, i) => `<li><button type="button" class="history-item" data-h="${i}">
     <span class="h-q">${esc(h.q)}</span>
-    <span class="h-meta">${[filterWords(h.f), `${h.total.toLocaleString()} papers`, ago(h.at)].filter(Boolean).map(esc).join(", ")}</span>
+    <span class="h-meta">${[filterWords(h.f), `${Number(h.total || 0).toLocaleString()} papers`, h.at ? ago(h.at) : ""].filter(Boolean).map(esc).join(", ")}</span>
   </button></li>`).join("")}</ul>`;
 }
 function renderHomeHistory() {
@@ -391,11 +396,14 @@ function relatedHTML(p) {
     (cit ? `<h3 class="block-h">Citation links</h3><p class="block-sub">Papers it cites, or that cite it.</p><ul class="paper-list">${cit}</ul>` : "");
 }
 
+let paperSeq = 0;
 async function openPaper(key) {
+  const seq = ++paperSeq;
   openSheet("paper-sheet");
   $("paper-body").innerHTML = `<p class="muted">Loading the paper…</p>`;
   try {
     const p = await getJSON("/api/paper?key=" + encodeURIComponent(key));
+    if (seq !== paperSeq) return;                               // another paper was opened meanwhile
     const shown = state.results.find((r) => r.key === key);
     const view = { ...p, field: shown ? shown.field : "", match: shown ? shown.match : null, match_level: shown ? shown.match_level : "" };
     const link = paperLink(p);
@@ -415,6 +423,7 @@ async function openPaper(key) {
     $("copy-cite").addEventListener("click", () => copyText(citation(p)));
     document.dispatchEvent(new CustomEvent("paperscope:paper", { detail: { paper: p, shown } }));
   } catch (e) {
+    if (seq !== paperSeq) return;
     $("paper-body").innerHTML = `<div class="state error"><h2>This paper could not be opened</h2><p>${esc(e.message)}</p></div>`;
   }
 }
@@ -502,7 +511,6 @@ $("home-link").addEventListener("click", (e) => {
   e.preventDefault();
   $("q").value = "";
   state.results = []; state.last = null;
-  document.title = "PaperScope";
   window.history.pushState(null, "", "/");
   showHome(true);
   $("q").focus();

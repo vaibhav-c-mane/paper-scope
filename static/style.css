@@ -143,6 +143,15 @@ main { padding-bottom: 80px; }
 .h-q { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .h-meta { flex: none; font-size: 13px; color: var(--ink-3); }
 .history-empty { padding: 14px 2px; color: var(--ink-3); font-size: 15px; }
+/* questions people search for, answered on the start page: the text search engines index */
+.faq { margin-top: 64px; padding-top: 28px; border-top: 1px solid var(--line); }
+.faq h2 { font: 500 26px/1.25 var(--serif); letter-spacing: -.01em; }
+.faq h3 { font-size: 16px; font-weight: 600; margin: 22px 0 4px; }
+.faq p { margin: 0; max-width: 64ch; font-size: 15.5px; color: var(--ink-2); }
+.faq b { font-weight: 600; color: var(--ink); }
+.home-foot { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); font-size: 13.5px; color: var(--ink-3); }
+.home-foot p { margin: 0; max-width: 64ch; }
+.home-foot a { color: var(--ink-2); }
 
 /* ---------------------------------------------------------------- popover */
 .pop-wrap { position: relative; }

@@ -15,13 +15,17 @@ Visitors get the papers and what the search understood. The engine's trace, the 
 numbers, the test settings and the OpenAlex budget are only for the admin (admin/,
 switched on with python scripts/set_admin.py).
 """
+import hashlib
+import html
+import json
 import logging
 import math
 import os
+import re
 import threading
 import time
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request
 from werkzeug.middleware.proxy_fix import ProxyFix
 
 from admin import AdminLogin, settings_from_env
@@ -38,6 +42,27 @@ SEARCHES_PER_MINUTE = 30                            # per visitor address, searc
 # Search engines may index the start page; the API stays off limits (a crawler running searches
 # would spend the OpenAlex budget). The admin login's address is secret, so it is never named here.
 ROBOTS = "User-agent: *\nDisallow: /api/\n"
+SITE_RE = re.compile(r"[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+STATIC_MAX_AGE = 365 * 24 * 3600                    # seconds a browser keeps a versioned static file
+NOT_FOUND_PAGE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Page not found | PaperScope</title>
+<script src="{theme}"></script>
+<link rel="stylesheet" href="{style}">
+</head>
+<body>
+<main class="home">
+  <h1 class="home-title">This page does not exist</h1>
+  <p class="home-lede">The address may be mistyped, or the page has moved. Every search starts from the start page.</p>
+  <a class="btn btn-primary" href="/">Go to the start page</a>
+</main>
+</body>
+</html>
+"""
 # The page's own scripts only (an injected <script> cannot run), styles and fonts from Google Fonts,
 # API calls to this site only, and no other site may show the page in a frame.
 CONTENT_POLICY = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
@@ -48,8 +73,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def _int(src, name, default=None):
+    """A whole number from the address, or `default` for anything else ("--5", "²", 5,000 digits)."""
     v = str(src.get(name, "") or "").strip()
-    return int(v) if v.lstrip("-").isdigit() else default
+    return int(v) if re.fullmatch(r"-?[0-9]{1,9}", v) else default
 
 
 class VisitorLimit:
@@ -82,6 +108,15 @@ class VisitorLimit:
         return (1.0 - tokens) / self.rate
 
 
+def site_address(value):
+    """The site's public address, e.g. paperscope.onrender.com (PAPERSCOPE_SITE): the one address
+    search engines should list, in the sitemap and as the start page's canonical address. A scheme
+    or path typed with it is dropped; anything that is not an address is ignored ("")."""
+    v = (value or "").strip()
+    v = re.sub(r"^https?://", "", v, flags=re.I).split("/", 1)[0].lower()
+    return v if SITE_RE.fullmatch(v) else ""
+
+
 def shape(res, admin):
     """The words to mark and what the search understood, for everyone; the trace and the
     ranking numbers only for the admin."""
@@ -97,14 +132,20 @@ def shape(res, admin):
     return res
 
 
-def create_app(pipeline=None, admin_settings=None, searches_per_minute=None):
+def create_app(pipeline=None, admin_settings=None, searches_per_minute=None, site=None, google_verification=None):
     """admin_settings: the admin login (path, user, password_hash, secret_key); read from .env when None.
-    searches_per_minute: per visitor address (PAPERSCOPE_SEARCHES_PER_MINUTE, default 30; 0 = no limit)."""
+    searches_per_minute: per visitor address (PAPERSCOPE_SEARCHES_PER_MINUTE, default 30; 0 = no limit).
+    site: the public address (PAPERSCOPE_SITE); google_verification: the code Google Search Console
+    gives for its "HTML tag" check (PAPERSCOPE_GOOGLE_VERIFICATION). Both are read from .env when None."""
     if pipeline is None:
         pipeline = SearchPipeline(models_dir=os.path.join(HERE, "data", "models"), client=ScholarlyClient(),
                                   capacity=int(os.environ.get("PAPERSCOPE_CAPACITY", "20000")))
     if searches_per_minute is None:
         searches_per_minute = int(os.environ.get("PAPERSCOPE_SEARCHES_PER_MINUTE") or SEARCHES_PER_MINUTE)
+    site = site_address(os.environ.get("PAPERSCOPE_SITE") if site is None else site)
+    if google_verification is None:
+        google_verification = os.environ.get("PAPERSCOPE_GOOGLE_VERIFICATION", "")
+    google_verification = google_verification.strip()
     app = Flask(__name__, static_folder=os.path.join(HERE, "static"))
     app.config["pipeline"] = pipeline
     app.config["MAX_CONTENT_LENGTH"] = 16 * 1024        # the only form is the admin sign-in
@@ -137,17 +178,82 @@ def create_app(pipeline=None, admin_settings=None, searches_per_minute=None):
             h.setdefault("Strict-Transport-Security", "max-age=31536000")
         return response
 
+    def base_url():
+        """The start page's full address, for the sitemap and robots.txt."""
+        if site:
+            return f"https://{site}/"
+        return f"https://{request.host}/" if app.config.get("HTTPS_ONLY") else request.host_url
+
+    versions = {}                                       # static file -> (modified time, short hash)
+
+    def asset(name):
+        """/static/<name>?v=<hash of the file>: a changed file gets a new address, so a browser can
+        keep each version for a year and still never use an old one after a deploy."""
+        path = os.path.join(app.static_folder, name)
+        mtime = os.path.getmtime(path)
+        if versions.get(name, (None,))[0] != mtime:
+            with open(path, "rb") as f:
+                versions[name] = (mtime, hashlib.sha256(f.read()).hexdigest()[:10])
+        return f"/static/{name}?v={versions[name][1]}"
+
+    app.context_processor(lambda: {"asset": asset})     # the admin login page uses it too
+    # versioned static files are kept for a year; an address without ?v= is checked every time
+    app.get_send_file_max_age = lambda filename: STATIC_MAX_AGE if request.args.get("v") else None
+
+    def page_html(start_page):
+        """index.html with versioned file addresses, Google's check code, and on the start page the
+        canonical address, the link preview's address and image, and what the site is (JSON-LD)."""
+        with open(os.path.join(app.static_folder, "index.html"), encoding="utf-8") as f:
+            page = f.read()
+        page = re.sub(r'="/static/([\w.-]+)"', lambda m: f'="{asset(m.group(1))}"', page)
+        head = []
+        if site and start_page:
+            url = f"https://{site}/"
+            head += [f'<link rel="canonical" href="{url}">', f'<meta property="og:url" content="{url}">',
+                     f'<meta property="og:image" content="https://{site}{asset("og-image.png")}">']
+            described = re.search(r'<meta name="description" content="([^"]*)"', page)
+            about = {"@context": "https://schema.org", "@graph": [
+                {"@type": "WebSite", "name": "PaperScope", "url": url},
+                {"@type": "WebApplication", "name": "PaperScope", "url": url,
+                 "description": html.unescape(described.group(1)) if described else "",
+                 "applicationCategory": "ReferenceApplication", "operatingSystem": "Any",
+                 "isAccessibleForFree": True, "offers": {"@type": "Offer", "price": "0", "priceCurrency": "USD"}}]}
+            # "</" is written as "<\/" so nothing in the data can end the script element early
+            head.append('<script type="application/ld+json">' + json.dumps(about).replace("</", "<\\/") + "</script>")
+        if google_verification:
+            head.append(f'<meta name="google-site-verification" content="{html.escape(google_verification)}">')
+        return page.replace("</head>", "".join(h + "\n" for h in head) + "</head>", 1) if head else page
+
     @app.get("/")
     def index():
-        r = (admin.search_page(os.path.join(app.static_folder, "index.html")) if admin.signed_in()
-             else send_from_directory(app.static_folder, "index.html"))
-        if request.args.get("q"):                               # a page of results: only the start page belongs in search engines
+        results = bool(request.args.get("q"))
+        page = page_html(start_page=not results)
+        r = admin.search_page(page) if admin.signed_in() else Response(page, mimetype="text/html")
+        if results:                                             # a page of results: only the start page belongs in search engines
             r.headers["X-Robots-Tag"] = "noindex"
         return r
 
+    @app.errorhandler(404)
+    def not_found(e):
+        """A page with a way back for people, plain JSON for the API. Also what a wrong admin
+        address gets, so nothing tells that a hidden page exists."""
+        if request.path.startswith("/api/"):
+            return jsonify({"error": "not found"}), 404
+        return Response(NOT_FOUND_PAGE.format(theme=asset("theme.js"), style=asset("style.css")),
+                        status=404, mimetype="text/html")
+
     @app.get("/robots.txt")
     def robots():
-        return app.response_class(ROBOTS, mimetype="text/plain")
+        return app.response_class(ROBOTS + f"Sitemap: {base_url()}sitemap.xml\n", mimetype="text/plain")
+
+    @app.get("/sitemap.xml")
+    def sitemap():
+        # the start page only: pages of results are not indexed, and the admin login is secret
+        xml = ('<?xml version="1.0" encoding="UTF-8"?>\n'
+               '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+               f"  <url><loc>{html.escape(base_url())}</loc></url>\n"
+               "</urlset>\n")
+        return app.response_class(xml, mimetype="application/xml")
 
     @app.get("/api/search")
     def api_search():

@@ -3,13 +3,19 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PaperScope</title>
-<meta name="description" content="Find research papers by asking in plain words.">
+<title>Free Research Paper Search: Ask in Plain Words | PaperScope</title>
+<meta name="description" content="Search millions of research papers for free, in plain words. PaperScope finds peer-reviewed and open-access articles from OpenAlex, arXiv, Europe PMC and more.">
+<meta name="keywords" content="research paper search, find research papers, academic search engine, scholarly articles, free research papers, open access papers, peer reviewed articles, literature search, arXiv, OpenAlex">
+<meta name="theme-color" content="#f2f5f1">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="PaperScope">
+<meta property="og:title" content="PaperScope: free research paper search in plain words">
+<meta property="og:description" content="Search millions of research papers for free, in plain words. Peer-reviewed and open-access articles from OpenAlex, arXiv, Europe PMC and more.">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22%3E%3Crect x=%224%22 y=%2213%22 width=%2224%22 height=%229%22 rx=%222%22 fill=%22%23F0BD3F%22/%3E%3Ccircle cx=%2214%22 cy=%2214%22 r=%228%22 fill=%22none%22 stroke=%22%231B5E45%22 stroke-width=%223.5%22/%3E%3Cpath d=%22M20 20l7 7%22 stroke=%22%231B5E45%22 stroke-width=%223.5%22 stroke-linecap=%22round%22/%3E%3C/svg%3E">
 <script src="/static/theme.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap">
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body class="is-home">
@@ -55,9 +61,9 @@
 
 <main>
   <section class="home" id="home">
-    <h1 class="home-title">Find the paper you are looking for</h1>
-    <p class="home-lede">Ask in plain words, the way you would ask a librarian. PaperScope searches open
-      catalogues of research papers and puts the ones that answer your question first.</p>
+    <h1 class="home-title">Find the research paper you are looking for</h1>
+    <p class="home-lede">Ask in plain words, the way you would ask a librarian. PaperScope searches free, open
+      catalogues of millions of research papers and puts the ones that answer your question first.</p>
     <div class="home-search-slot" id="home-slot"></div>
     <div class="home-examples" id="examples">
       <span class="muted">For example</span>
@@ -67,6 +73,43 @@
       <button type="button" class="link" data-q="attention is all you need">attention is all you need</button>
     </div>
     <div class="home-history" id="home-history"></div>
+
+    <section class="faq" aria-labelledby="faq-title">
+      <h2 id="faq-title">Finding research papers: common questions</h2>
+      <h3>Is PaperScope free?</h3>
+      <p>Yes. Anyone can search, with no account and no sign-up. PaperScope looks through open catalogues of
+        scholarly articles (OpenAlex, arXiv, Europe PMC, Semantic Scholar and Crossref) and links each paper to
+        where it is published, and to a free copy when there is one.</p>
+      <h3>How do I find research papers on a topic?</h3>
+      <p>Type the topic the way you would say it, such as “making neural networks smaller for phones”. PaperScope
+        fixes typing mistakes, leaves out words like “find me papers on”, and also searches by meaning, so papers
+        that use other words for the same idea still turn up. Each result shows how well it matches your search
+        and which of your words it does not mention.</p>
+      <h3>How do I find free, open access papers?</h3>
+      <p>Results with a free copy show <b>Free full text</b>. Open it to read the whole paper without a paywall.</p>
+      <h3>How can I tell whether a paper is peer reviewed?</h3>
+      <p>Each result says <b>Peer reviewed</b> when it was published in a journal or at a conference, and
+        <b>Preprint</b> when it is a version shared before review, as on arXiv. <b>Top venue</b> and
+        <b>Strong venue</b> mark highly ranked journals and conferences.</p>
+      <h3>How do I find the latest research?</h3>
+      <p>Add “recent” or “latest” to your question to keep papers from the last five years, or set the years
+        above the results. <b>Newest first</b> sorts by date while keeping the papers that match best on top.</p>
+      <h3>Can I search by DOI or title?</h3>
+      <p>Yes. Paste a DOI such as 10.1038/nature14539, an arXiv number, or the exact title, and that paper comes first.</p>
+      <h3>How do I cite a paper?</h3>
+      <p>Open the paper and choose <b>Copy citation</b>: it copies the authors, year, title, journal and link,
+        ready to paste into your reference list.</p>
+      <h3>How do I find papers related to one I like?</h3>
+      <p>Open the paper. <b>Related papers</b> lists the closest ones through citations and similar topics, and
+        <b>Citation links</b> shows the papers it cites and the papers that cite it.</p>
+    </section>
+
+    <footer class="home-foot">
+      <p>Papers and their details come from <a href="https://openalex.org/" rel="noopener">OpenAlex</a>,
+        <a href="https://arxiv.org/" rel="noopener">arXiv</a>, <a href="https://europepmc.org/" rel="noopener">Europe PMC</a>,
+        <a href="https://www.semanticscholar.org/" rel="noopener">Semantic Scholar</a> and
+        <a href="https://www.crossref.org/" rel="noopener">Crossref</a>. Thank you to arXiv for use of its open access interoperability.</p>
+    </footer>
   </section>
 
   <section class="results-view hidden" id="results-view">

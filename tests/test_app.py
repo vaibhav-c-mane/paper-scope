@@ -1,13 +1,15 @@
 """The web API, with a fake internet behind it."""
+import json
 import logging
 import os
+import re
 import tempfile
 import unittest
 
 from werkzeug.security import generate_password_hash
 
 from admin import MAX_TRIES, LoginGuard
-from app import VisitorLimit, create_app, for_deployment
+from app import VisitorLimit, create_app, for_deployment, site_address
 from engine.pipeline import SearchPipeline
 from engine.ranker import HeuristicRanker
 from scripts.set_admin import admin_values, read_env, update_env
@@ -40,7 +42,7 @@ class AppTests(unittest.TestCase):
         works = [openalex_work(f"Protein folding structure paper {i}", doi=f"10.1/pf{i}") for i in range(6)]
         client, self.transport, _ = client_with({"api.openalex.org/works": ok({"results": works})}, order=("openalex",))
         pipe = SearchPipeline(client=client, lexicon=lexicon(), ranker=HeuristicRanker(), capacity=100)
-        self.web = create_app(pipe, admin_settings=False).test_client()
+        self.web = create_app(pipe, admin_settings=False, site="", google_verification="").test_client()
 
     def test_search_then_open_a_paper(self):
         r = self.web.get("/api/search?q=protein+folding+structure").get_json()
@@ -81,14 +83,73 @@ class AppTests(unittest.TestCase):
         self.assertIn("Content-Security-Policy", api.headers)
         self.assertEqual(api.headers["Cache-Control"], "no-store")                # answers are never kept by caches
 
+    def test_odd_page_numbers_mean_the_first_page(self):
+        for page in ("--5", "²", "1" * 5000, "abc", "-3"):
+            r = self.web.get("/api/search", query_string={"q": "protein folding", "page": page})
+            self.assertEqual((r.status_code, r.get_json()["page"]), (200, 1), page)
+
     def test_search_engines_see_the_start_page_only(self):
         """Pages of results are not indexed and the API is off limits to crawlers, whose searches
         would spend the OpenAlex budget."""
         robots = self.web.get("/robots.txt")
-        self.assertEqual(robots.get_data(as_text=True), "User-agent: *\nDisallow: /api/\n")
+        self.assertEqual(robots.get_data(as_text=True),
+                         "User-agent: *\nDisallow: /api/\nSitemap: http://localhost/sitemap.xml\n")
         with self.web.get("/") as home, self.web.get("/?q=protein+folding") as results:
             self.assertNotIn("X-Robots-Tag", home.headers)
             self.assertEqual(results.headers["X-Robots-Tag"], "noindex")
+        sitemap = self.web.get("/sitemap.xml")
+        self.assertEqual(sitemap.mimetype, "application/xml")
+        self.assertIn("<loc>http://localhost/</loc>", sitemap.get_data(as_text=True))
+        self.assertNotIn("canonical", page(self.web))                       # no public address set
+        self.assertNotIn("google-site-verification", page(self.web))
+
+    def test_the_start_page_tells_search_engines_what_it_is(self):
+        home = page(self.web)
+        self.assertIn("<title>Free Research Paper Search: Ask in Plain Words | PaperScope</title>", home)
+        description = re.search(r'<meta name="description" content="([^"]+)"', home).group(1)
+        self.assertLessEqual(len(description), 160)                         # what Google shows in full
+        for tag in ('name="keywords"', 'property="og:title"', 'property="og:description"', 'name="twitter:card"',
+                    'name="theme-color"', '<h1 class="home-title">', 'Finding research papers: common questions'):
+            self.assertIn(tag, home)
+
+    def test_every_address_on_our_pages_answers(self):
+        """No broken links: each file and page the start page and the not-found page point to is
+        there. Versioned files are kept by browsers for a year; the start page itself is not."""
+        missing = self.web.get("/no/such/page")
+        self.assertEqual(missing.status_code, 404)
+        self.assertIn('href="/"', missing.get_data(as_text=True))
+        self.assertEqual(self.web.get("/api/nothing-here").get_json(), {"error": "not found"})
+        for html in (page(self.web), missing.get_data(as_text=True)):
+            for url in re.findall(r'(?:href|src)="(/[^"#]*)"', html):
+                with self.web.get(url) as r:
+                    self.assertEqual(r.status_code, 200, url)
+                    if "?v=" in url:
+                        self.assertEqual(r.headers["Cache-Control"], "public, max-age=31536000", url)
+        with self.web.get("/static/app.js") as plain:                       # no version: checked every time
+            self.assertNotIn("max-age=31536000", plain.headers.get("Cache-Control", ""))
+        with self.web.get("/") as home:
+            self.assertNotIn("max-age", home.headers.get("Cache-Control", ""))
+
+    def test_the_public_address_and_googles_check(self):
+        """With PAPERSCOPE_SITE, the sitemap and the start page's canonical address name it (so
+        name.onrender.com and your own domain count as one site); Search Console's code goes in a
+        meta tag. Pages of results get no canonical address: they are not indexed at all."""
+        web = create_app(protein_pipeline(), admin_settings=False, site="https://PaperScope.onrender.com/",
+                         google_verification='abc123"><script>').test_client()
+        home = page(web)
+        self.assertIn('<link rel="canonical" href="https://paperscope.onrender.com/">', home)
+        self.assertIn('<meta name="google-site-verification" content="abc123&quot;&gt;&lt;script&gt;">', home)
+        self.assertNotIn("canonical", page(web, "/?q=protein"))
+        self.assertIn('<meta property="og:url" content="https://paperscope.onrender.com/">', home)
+        self.assertRegex(home, r'<meta property="og:image" content="https://paperscope\.onrender\.com/static/og-image\.png\?v=\w+">')
+        about = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', home).group(1))
+        self.assertEqual({p["@type"]: p["url"] for p in about["@graph"]},
+                         {"WebSite": "https://paperscope.onrender.com/", "WebApplication": "https://paperscope.onrender.com/"})
+        self.assertTrue(about["@graph"][1]["isAccessibleForFree"])
+        self.assertIn("<loc>https://paperscope.onrender.com/</loc>", web.get("/sitemap.xml").get_data(as_text=True))
+        self.assertIn("Sitemap: https://paperscope.onrender.com/sitemap.xml", web.get("/robots.txt").get_data(as_text=True))
+        for typed, kept in (("paperscope.duckdns.org", "paperscope.duckdns.org"), ("not an address", ""), ("", "")):
+            self.assertEqual(site_address(typed), kept)
 
     def test_related_papers_follow_citation_links(self):
         """A chain of five papers, each citing the one before; the drawer lists the citation links
@@ -187,6 +248,7 @@ class AdminTests(unittest.TestCase):
         self.assertEqual(self.web.get("/admin/").status_code, 404)
         page = self.web.get("/test-door-4821/")
         self.assertEqual(page.status_code, 200)
+        self.assertRegex(page.get_data(as_text=True), r'href="/static/style\.css\?v=\w+"')   # versioned, like the start page
         self.assertIn("noindex", page.headers["X-Robots-Tag"])
         self.assertEqual(page.headers["Cache-Control"], "no-store")
         self.assertEqual(self.web.get("/test-door-4821/admin.js").status_code, 404)    # not before signing in
@@ -263,6 +325,20 @@ class AdminTests(unittest.TestCase):
         g.wrong("1.2.3.4")
         self.assertEqual(g.wait_s("1.2.3.4"), 0)                             # two in a row, not three
 
+    def test_tries_sent_at_once_are_counted_before_any_password_check(self):
+        """Each try is counted as it starts, so several sent together cannot all get past the lock
+        while the first passwords are still being checked."""
+        clock = FakeClock()
+        g = LoginGuard(tries=3, lock_s=60, clock=clock)
+        self.assertEqual([g.attempt("1.2.3.4") for _ in range(3)], [0.0, 0.0, 0.0])
+        self.assertAlmostEqual(g.attempt("1.2.3.4"), 60)
+        self.assertAlmostEqual(g.attempt("1.2.3.4"), 60)                      # waiting does not add to it
+        self.assertEqual(g.attempt("5.6.7.8"), 0.0)
+        g.right("5.6.7.8")                                                     # a right password clears it
+        self.assertEqual(g.wait_s("5.6.7.8"), 0.0)
+        clock.t += 61
+        self.assertEqual(g.attempt("1.2.3.4"), 0.0)                           # the wait is over
+
     def test_a_new_password_signs_everyone_out(self):
         self.sign_in()
         changed = dict(ADMIN, password_hash=generate_password_hash("another long password", method="pbkdf2:sha256:1000"))
@@ -277,7 +353,7 @@ class DeploymentTests(unittest.TestCase):
         works = [openalex_work(f"Protein folding structure paper {i}", doi=f"10.1/pf{i}") for i in range(6)]
         client, _, _ = client_with({"api.openalex.org/works": ok({"results": works})}, order=("openalex",))
         pipe = SearchPipeline(client=client, lexicon=lexicon(), ranker=HeuristicRanker(), capacity=100)
-        self.web = for_deployment(create_app(pipe, admin_settings=ADMIN), proxies=1, https=True).test_client()
+        self.web = for_deployment(create_app(pipe, admin_settings=ADMIN, site=""), proxies=1, https=True).test_client()
 
     def via(self, forwarded):
         """Headers as the host's proxy sends them: it adds the address it got the request from."""
@@ -308,6 +384,8 @@ class DeploymentTests(unittest.TestCase):
         with self.web.get("/", headers=self.via("198.51.100.4")) as home:
             self.assertIn("max-age=", home.headers["Strict-Transport-Security"])
             self.assertIn("/test-door-4821/admin.js", home.get_data(as_text=True))
+        # with no PAPERSCOPE_SITE, the sitemap uses the address asked for, always over HTTPS
+        self.assertIn("<loc>https://localhost/</loc>", self.web.get("/sitemap.xml").get_data(as_text=True))
 
 
 class SetAdminTests(unittest.TestCase):
