@@ -1,11 +1,3 @@
-"""LRU cache: a hash map for O(1) lookup plus a doubly linked list for O(1) recency order.
-
-The list runs from least to most recently used. `get` and `put` move an entry to
-the end; when the cache is over capacity the entry at the front is evicted. With
-`ttl`, entries also expire after that many seconds (used for online API answers,
-which can change). Used for the papers kept in memory and for API responses, so
-both stay within a fixed size however long the app runs.
-"""
 import time
 
 

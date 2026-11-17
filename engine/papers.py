@@ -1,12 +1,3 @@
-"""Paper records: every source's answer becomes one plain dict with the same keys.
-
-    arxiv_id, title, authors, abstract, categories, topic, year, venue, published,
-    venue_quality, doi, url, oa_url, citations, openalex_id, source
-
-Missing fields get safe defaults ("" / 0 / None), so the rest of the engine never
-has to check whether a key exists. `None` means "not known", which is different
-from 0 (e.g. citations=None: the source did not say; citations=0: nobody cites it).
-"""
 import re
 
 PAPER_DEFAULTS = {

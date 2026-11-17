@@ -1,31 +1,3 @@
-"""The search pipeline: papers in memory first, the internet when they are not enough.
-
-    query
-      │  parse: words, -exclusions, prefix*, AND/OR/NOT (stack), DOI / arXiv id
-      │  understand (engine/understand.py): fix typos, drop "find me papers on",
-      │  "recent" -> year filter, sentence or title?
-      ▼
-    local candidates ── BM25 top 200 (inverted index) ∪ nearest 200 vectors,
-      │                 over the papers fetched earlier in this session
-      ▼
-    filters      ── year range, author, field, exclusions / boolean set
-      ▼
-    features     ── bm25, semantic, title/term coverage, domain match,
-      │             citations, recency, peer reviewed, venue quality
-      ▼
-    rerank       ── learned ranker (gradient-boosted trees, LambdaMART)
-      ▼
-    fewer than 3 confident matches?
-      │  yes ─► OpenAlex → Semantic Scholar → Crossref (rate-limited, cached in
-      │         memory), and at the same time OpenAlex by meaning (for sentences)
-      │         and by title (for title-like queries); the new papers are added to
-      │         the in-memory index and the ranking is computed again over everything
-      ▼
-    results, ordered with merge sort (stable)
-
-Nothing is written to disk while searching. The only files the engine reads are
-the trained models in data/models/ (Lexicon + ranker), loaded once at start-up.
-"""
 import os
 import re
 import threading

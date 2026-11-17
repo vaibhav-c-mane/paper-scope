@@ -1,26 +1,3 @@
-"""Binary search tree keyed by publication year, for year-range filters.
-
-Each node holds one year and the set of papers published that year; everything
-in a node's left subtree is an earlier year, everything in its right subtree a
-later one. There are only a few hundred distinct years, so the tree stays small
-even when it indexes 20,000 papers.
-
-* insert(year, paper): walk down from the root, left if the year is smaller,
-  right if larger, and add the paper to the node of that year (a new leaf if
-  the year is new): O(h) for tree height h.
-* remove(year, paper): find the node, drop the paper from its set: O(h).
-* range(lo, hi): in-order traversal that skips a whole subtree when it cannot
-  hold years in [lo, hi] (no left subtree when the node's year < lo, no right
-  subtree when > hi): O(h + years visited + papers returned), and the papers
-  come out grouped by year in increasing order.
-
-Written iteratively (an explicit stack of nodes), so a tall tree cannot hit
-Python's recursion limit. Use in the search engine: the year filter
-(engine/pipeline.py), with the tree kept up to date as papers are added and
-evicted (engine/memindex.py).
-"""
-
-
 class _Node:
     __slots__ = ("year", "papers", "left", "right")
 

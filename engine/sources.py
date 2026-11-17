@@ -1,31 +1,3 @@
-"""Online scholarly sources: OpenAlex (first), arXiv and Europe PMC (by field),
-Semantic Scholar, Crossref.
-
-This is where the papers come from. Answers are kept in an in-memory LRU cache
-with an expiry time (dsa/lru.py), so a repeated query within the session costs
-no network call, and the cache never grows past a fixed number of entries.
-Nothing is written to disk unless the optional cache file is turned on
-(PAPERSCOPE_CACHE_FILE, dsa/logstore.py), which keeps answers between runs.
-
-What makes it fast and safe to use:
-* Provider cascade. OpenAlex first (largest open index, venue rankings and topics
-  included); only if it fails or finds too little, the free source for the query's
-  field (arXiv, or Europe PMC for biology and medicine), Semantic Scholar, Crossref.
-* Budget. OpenAlex reports the day's remaining budget on every answer (Budget);
-  below 20% (saver mode) the free sources are asked first.
-* Rate limits. One token bucket per provider (OpenAlex 8/s, arXiv one per 3 s,
-  Europe PMC 5/s, Semantic Scholar 1/s, Crossref 3/s), Retry-After is honoured
-  on HTTP 429, and the polite-pool email (OPENALEX_EMAIL) is sent when set.
-* Timeouts and a deadline. Each request has a timeout and every search has an
-  overall deadline, so a slow API delays a search by a few seconds at most;
-  retries use exponential backoff and stop when the deadline is near.
-* Cool-down. A provider that just failed (network down, blocked, HTTP 5xx) is
-  skipped for a minute, so an outage does not add a timeout to every search.
-* Batching. Looking papers up by id asks for 50 per OpenAlex request
-  (filter=ids.openalex:W1|W2|...), not one request per paper.
-* Missing fields. Every provider's answer is normalised into the same paper
-  dict (engine/papers.py); records without a title are dropped.
-"""
 import html
 import json
 import os

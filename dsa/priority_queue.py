@@ -1,21 +1,3 @@
-"""Indexed priority queue: a binary min-heap of keys with priorities, plus a hash map
-from each key to its position in the heap array.
-
-The position map is what a plain heap (dsa/heap.py) lacks: it finds a key in O(1),
-so a key's priority can be lowered in place ("decrease-key") and the key moved up
-in O(log n), instead of pushing a duplicate and skipping stale copies later.
-
-    push(key, priority)     O(log n)
-    decrease(key, priority) O(log n)   only ever lowers a priority
-    pop()                   O(log n)   the key with the smallest priority
-    key in pq, len(pq)      O(1)
-
-Use in the search engine: the frontier of Dijkstra's shortest paths for related
-papers (dsa/graph.py). Each paper is a key, its priority the shortest distance
-found so far from the opened paper; a shorter path found later lowers it.
-"""
-
-
 class IndexedMinPQ:
     def __init__(self):
         self._heap = []                 # [(priority, tiebreak, key)] in heap order

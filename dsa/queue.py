@@ -1,16 +1,3 @@
-"""Circular queue on an array: enqueue at the rear, dequeue at the front, both O(1).
-
-`front` is the index of the first item and `size` the number of items; the rear
-is (front + size) mod capacity, so the array is reused in a circle instead of
-shifting items after every dequeue. When it is full, the capacity doubles and
-the items are copied in order (amortised O(1) per enqueue).
-
-Use in the search engine: the frontier of the breadth-first search over the
-citation graph (dsa/graph.py), which must visit papers in the order they were
-discovered (first in, first out).
-"""
-
-
 class QueueUnderflow(IndexError):
     pass
 

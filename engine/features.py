@@ -1,19 +1,3 @@
-"""Ranking features: what the ranker looks at for every (query, paper) pair.
-
-Relevance (all 0..1, comparable across queries):
-  bm25            BM25 score / the best score this query could reach (lexical match)
-  semantic        cosine similarity of query and paper embeddings (same meaning,
-                  even with different words)
-  title_coverage  share of the query words that appear in the title
-  term_coverage   share of the query words that appear anywhere in the paper
-  domain_match    P(domain | query) . P(domain | paper): both about the same field
-
-Publication metadata (0..1, -1 = unknown; engine/metadata.py):
-  citations, recency, peer_reviewed, venue_quality
-
-The learned ranker sees all nine. The hand-set fallback (no model trained yet)
-uses the relevance features and multiplies in a small metadata prior.
-"""
 import numpy as np
 
 from engine.metadata import METADATA_FEATURES, metadata_matrix

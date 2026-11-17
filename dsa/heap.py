@@ -1,19 +1,3 @@
-"""Binary min-heap on an array, and top-k selection with it.
-
-The heap is a complete binary tree stored level by level in a Python list:
-the children of position i are 2i+1 and 2i+2, its parent is (i-1)//2, and every
-parent is smaller than (or equal to) its children, so the smallest item is
-always at position 0.
-
-Use in the search engine: picking the k best of n candidate scores (the 200
-best BM25 scores and the 200 nearest vectors). The heap holds the k best seen
-so far, with the weakest of them at the root. Each new score is compared with
-the root once: if it is not better, it is dropped in O(1); if it is, it
-replaces the root and sinks to its place in O(log k). Total O(n log k) time and
-O(k) extra space, with no need to sort all n scores (O(n log n)).
-"""
-
-
 class MinHeap:
     def __init__(self, items=None):
         self._a = list(items or [])

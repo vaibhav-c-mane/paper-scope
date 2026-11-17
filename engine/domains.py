@@ -1,21 +1,3 @@
-"""Research domains: a fixed taxonomy, free "weak" labels, and a learned topic classifier.
-
-Labels come with the data:
-* arXiv papers carry author-chosen categories (cs.CV, quant-ph, ...);
-* OpenAlex works carry a primary topic with its subfield and field
-  ("Domain Adaptation and Few-Shot Learning | Artificial Intelligence | Computer Science").
-Both map to one of the 13 domains below. Why a classifier as well?
-* queries have no category: the classifier says "pedestrian detection at night"
-  is Computer Vision, so Computer Vision papers can be favoured;
-* papers from Semantic Scholar / Crossref, and some OpenAlex works, have no usable
-  category, so their domain is predicted from title + abstract;
-* it gives a probability over domains instead of one hard label, so the
-  "same domain as the query" feature is smooth.
-
-Model: logistic regression (one-vs-rest, trained with SGD, balanced classes) on the
-TF-IDF vectors the index already computes. It is stored as two plain arrays
-(weights and biases), so it loads without pickle and in any library version.
-"""
 import json
 import os
 import re

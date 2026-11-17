@@ -1,11 +1,3 @@
-"""Stack on an array (Python list used as a dynamic array: push and pop at the end are O(1)).
-
-One implementation is enough: the array version needs no node objects and keeps
-the items next to each other in memory, and a query never has more than a few
-dozen tokens, so a fixed-size or linked version would add nothing.
-"""
-
-
 class StackUnderflow(IndexError):
     pass
 

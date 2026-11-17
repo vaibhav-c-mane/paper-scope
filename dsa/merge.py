@@ -1,16 +1,3 @@
-"""Merging sorted lists, and merge sort built on the same merge.
-
-One routine, two jobs in the search engine:
-* posting lists are sorted lists of doc ids, so AND / OR / NOT between query
-  words are single merge passes: O(m + n) instead of O(m * n) nested loops;
-* merge sort orders the result list (by score, year or citations).
-  It is O(n log n) in every case, unlike quicksort's O(n^2) worst case, and it
-  is stable: papers with equal keys keep their relevance order, which is what
-  "sort by year" should do. Bubble, selection, insertion, heap and the other
-  sorts from the syllabus are not needed.
-"""
-
-
 def merge(a, b, key=None, reverse=False):
     """Merge two lists that are already sorted by `key`. On equal keys the item
     from `a` comes first (stability)."""

@@ -1,20 +1,3 @@
-"""Radix trie (compressed prefix tree): strings stored along paths from the root, with
-each chain of single-child nodes merged into one edge labelled by a whole substring.
-
-A plain trie has one node per character: 20,000 titles of 80 characters would need
-up to 1.6 million nodes. Merging single-child chains leaves at most about two nodes
-per stored string (one leaf, one branching point), so the same titles need about
-40,000 nodes, while lookups still walk the string once.
-
-    insert(key, value)          O(len(key))
-    remove(key, value)          O(len(key)); merges a node left with one child back into its edge
-    with_prefix(prefix, limit)  O(len(prefix) + size of the subtree visited)
-
-Use in the search engine: title suggestions while typing. Every paper in memory
-is stored under its normalised title; typing "attention is a" walks to the node
-for that prefix and lists the titles below it ("attention is all you need"),
-with a stack (dsa/stack.py) for the depth-first walk.
-"""
 from .stack import Stack
 
 

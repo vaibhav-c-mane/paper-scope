@@ -1,24 +1,3 @@
-"""Hash table with separate chaining, written by hand.
-
-    bucket index = hash(key) mod number_of_buckets
-
-* Hash function: polynomial rolling hash of the key's characters,
-  h = h * 31 + code(char), kept to 64 bits. Two different keys can land in the
-  same bucket (a collision).
-* Collision resolution: separate chaining. Each bucket is a short list of
-  [key, value] pairs; a lookup hashes the key, then compares keys only inside
-  that one bucket.
-* Overflow: when the load factor (entries / buckets) passes 0.75, the number of
-  buckets doubles and every entry is re-hashed into the new buckets (rehashing).
-  Doubling keeps the chains short, so get, put and delete are O(1) on average,
-  and the occasional O(n) rehash is amortised over the inserts before it.
-
-Use in the search engine: the identity-key map of the in-memory index
-(engine/memindex.py), from keys such as "doi:10.1038/nature14539" or
-"arxiv:1706.03762" to paper ids. Every paper that arrives from an API is checked
-against it, so the same paper from two sources becomes one entry.
-"""
-
 _MASK = (1 << 64) - 1
 
 

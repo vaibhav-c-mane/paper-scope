@@ -1,12 +1,3 @@
-"""Stack application: boolean search queries.
-
-    deep AND (vision OR image) NOT survey
-
-The query is tokenized (adjacent words get an implicit AND), converted from
-infix to postfix with the shunting-yard algorithm on a stack, then evaluated
-with a second stack whose operands are sorted lists of matching doc ids;
-AND / OR / NOT are merge passes over those lists (dsa/merge.py).
-"""
 from . import merge
 from .stack import Stack
 

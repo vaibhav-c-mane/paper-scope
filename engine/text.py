@@ -1,8 +1,3 @@
-"""Turning text into index terms: lowercase, split, drop stop words, light stemming.
-
-The same analyzer is used for papers and for queries, so a query word and a
-paper word only need to stem to the same string to match.
-"""
 import re
 from functools import lru_cache
 

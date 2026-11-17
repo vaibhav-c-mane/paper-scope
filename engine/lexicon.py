@@ -1,23 +1,3 @@
-"""Background language statistics, learned once from real papers and saved with the models.
-
-Search results come from the internet a few dozen at a time, so statistics
-computed from them alone would be useless: every fetched paper contains the
-query words, which would make those words look common (idf near 0). Instead the
-engine uses statistics of a large real corpus (OpenAlex works, see ml/train.py),
-saved as plain arrays in data/models/lexicon/:
-
-  vocabulary + document frequencies -> BM25 idf of every word
-  TF-IDF columns (the most informative words) and their idf
-  LSA projection (TF-IDF -> truncated SVD)  -> paper and query embeddings
-  domain classifier weights                 -> P(research domain | text)
-
-This is a model, not a copy of the papers: no titles or abstracts are stored.
-
-Data structures: the vocabulary is a sorted array, so a prefix query ("optim*")
-is one contiguous range found by binary search (bisect), plus a hash map from
-word to id for exact lookups, O(1) on average; the TF-IDF matrices are sparse (CSR) because a text uses a
-tiny fraction of the vocabulary.
-"""
 import bisect
 import json
 import math

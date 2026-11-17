@@ -1,23 +1,3 @@
-"""Publication metadata as ranking signals: citations, recency, publication status, venue quality.
-
-Each signal is a number in 0..1, or -1 when it is not known. The gradient-boosted
-ranker can split on "-1" separately, so "unknown" is never confused with "bad".
-
-  citations      log(1 + citations per year since publication) / log(101), capped at 1.
-                 Per year, so a 2-year-old paper with 200 citations is not beaten
-                 by a 20-year-old one with 300.
-  recency        exp(-age / 8 years): 1 this year, 0.29 after 10 years.
-  peer_reviewed  1 published in a journal / conference, 0 preprint only.
-  venue_quality  1.0 top venue, 0.75 strong, 0.5 recognised, 0.25 published but
-                 not ranked, 0 preprint server. Two sources:
-                 * OpenAlex venue listings (`listed_in`): the Norwegian and Finnish
-                   national rankings (level 2 / level 3 = top of their field), the
-                   CCF computer-science ranking (A/B/C), CWTS core journals, ...
-                   These arrive with papers from OpenAlex (snapshot, search or
-                   enrichment), so they cover every field.
-                 * For arXiv journal references, which have no listings, a short
-                   list of flagship venues (below), so offline data still has a signal.
-"""
 import datetime
 import math
 import re

@@ -1,22 +1,3 @@
-"""Log-structured hash table (the design of Bitcask): an append-only file of records plus
-a hash map in memory from each key to where its newest record starts in the file.
-
-    put(key, value, ttl)   O(1)   appends one line at the end of the file; the map points at it
-    get(key)               O(1)   one seek and one read of that line
-    delete(key)            O(1)   appends a "deleted" record
-    compact()              O(live records)   rewrites the file with only the newest, unexpired records
-
-The file is only ever appended to, so writing is fast and a crash can at worst leave a
-half-written last line, which loading skips (and cuts off). An update leaves the old
-line behind as garbage; when there are more than twice as many lines as live keys, or
-the file is over its size limit, compact() rewrites it, keeping the newest records
-(and, if it is still too big, dropping the oldest ones, like an LRU at disk scale).
-Values stay on disk: memory holds only (offset, length, expiry) per key.
-
-Use in the search engine: the optional cache file for API answers (PAPERSCOPE_CACHE_FILE
-in .env, off unless set). A question asked yesterday is answered from the file, so it
-costs nothing from the daily OpenAlex budget, even after the app was restarted.
-"""
 import json
 import os
 import threading

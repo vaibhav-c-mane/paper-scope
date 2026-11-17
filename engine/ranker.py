@@ -1,18 +1,3 @@
-"""The ranker: turns the nine features of each candidate into a score.
-
-* GBDTRanker - gradient-boosted regression trees trained with LambdaMART
-  (ml/lambdamart.py) on real relevance labels. Trees can learn interactions a
-  weighted sum cannot, e.g. "citations matter only once the paper is on topic",
-  or "unknown venue (-1) is not the same as a preprint (0)".
-* LinearRanker - one weight per feature (pairwise logistic regression); kept as
-  the baseline the trees have to beat.
-* HeuristicRanker - hand-set weights, used until a model has been trained.
-
-Every model is stored as plain JSON (no pickle): readable, safe to load, and
-independent of library versions. score() gives the raw ranking score;
-relevance() maps it to 0..1 with Platt scaling, and `threshold` on that scale
-decides what counts as a confident local match (fewer than 3 -> search online).
-"""
 import json
 import os
 
